@@ -1,0 +1,60 @@
+name: Unpack BookHaven 4.0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.bootstrap/**'
+      - '.github/workflows/bootstrap.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bookhaven-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  unpack:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify and unpack source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .bootstrap/source.part05
+          cat .bootstrap/source.part* | tr -d '\r\n' | base64 --decode > /tmp/bookhaven-source.tar.gz
+          gzip -t /tmp/bookhaven-source.tar.gz
+          mkdir -p /tmp/bookhaven-source
+          tar -xzf /tmp/bookhaven-source.tar.gz -C /tmp/bookhaven-source
+
+          ROOT=/tmp/bookhaven-source
+          mapfile -t ENTRIES < <(find "$ROOT" -mindepth 1 -maxdepth 1 -print)
+          if [ "${#ENTRIES[@]}" -eq 1 ] && [ -d "${ENTRIES[0]}" ] && { [ -d "${ENTRIES[0]}/frontend" ] || [ -d "${ENTRIES[0]}/backend" ]; }; then
+            ROOT="${ENTRIES[0]}"
+          fi
+
+          rsync -a --delete --exclude='.git/' "$ROOT"/ ./
+          rm -rf .bootstrap .github/workflows/bootstrap.yml
+
+          test -d backend
+          test -d frontend
+          test -f README.md
+          test -f compose.yaml
+
+      - name: Commit real source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m 'Release BookHaven 4.0 premium UI/UX source'
+          git push origin HEAD:main

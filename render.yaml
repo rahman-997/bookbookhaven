@@ -1,17 +1,18 @@
 services:
   - type: web
-    name: bookhaven-free
+    name: bookbookhaven-free
     runtime: node
     plan: free
     region: frankfurt
     buildCommand: npm run build:free
     startCommand: npm run start:free
+    healthCheckPath: /api/health
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
         value: "24"
       - key: NEXT_PUBLIC_SITE_URL
-        value: https://bookhaven-free.onrender.com
+        value: https://bookbookhaven-free.onrender.com
       - key: NODE_ENV
         value: production
       - key: INTERNAL_API_URL
@@ -27,7 +28,7 @@ services:
       - key: JWT_EXPIRES_IN
         value: 7d
       - key: CORS_ORIGIN
-        value: http://127.0.0.1:3001
+        value: https://bookbookhaven-free.onrender.com
       - key: ADMIN_EMAIL
         sync: false
       - key: ADMIN_PASSWORD

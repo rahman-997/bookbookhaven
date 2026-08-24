@@ -126,7 +126,7 @@ describe('BookHaven API', () => {
 
   it('cleans cart, wishlist and reviews when an admin deletes a book', async () => {
     const { token } = await register('admin-test@example.com');
-    const user = await User.findOneAndUpdate({ email: 'admin-test@example.com' }, { $set: { role: 'admin' } }, { new: true });
+    const user = await User.findOneAndUpdate({ email: 'admin-test@example.com' }, { $set: { role: 'admin' } }, { returnDocument: 'after' });
     expect(user).not.toBeNull();
     const book = await createBook();
     const auth = { Authorization: `Bearer ${token}` };

@@ -17,7 +17,7 @@ export async function add(userId: string, bookId: string) {
   await Wishlist.findOneAndUpdate(
     { user: userId },
     { $setOnInsert: { user: userId }, $addToSet: { books: bookId } },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
   return populated(userId);
 }

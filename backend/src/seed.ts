@@ -25,7 +25,7 @@ async function seed() {
   await User.findOneAndUpdate(
     { email: env.ADMIN_EMAIL.toLowerCase() },
     { $set: { name: 'BookHaven Admin', email: env.ADMIN_EMAIL.toLowerCase(), passwordHash, role: 'admin' } },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
 
   console.log(`Seeded ${books.length} books and admin ${env.ADMIN_EMAIL}`);

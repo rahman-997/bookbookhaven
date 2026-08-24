@@ -20,7 +20,7 @@ export async function upsert(userId: string, bookId: string, input: { rating: nu
   return Review.findOneAndUpdate(
     { user: userId, book: bookId },
     { $set: input },
-    { upsert: true, new: true, runValidators: true }
+    { upsert: true, returnDocument: 'after', runValidators: true }
   ).populate('user', 'name');
 }
 

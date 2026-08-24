@@ -28,7 +28,7 @@ export async function create(userId: string, shippingAddress: string, paymentMet
       $or: [{ checkoutLockedAt: null }, { checkoutLockedAt: { $lt: lockCutoff } }]
     },
     { $set: { checkoutLockedAt: new Date() } },
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   if (!cart) {
@@ -83,7 +83,7 @@ export async function updateStatus(id: string, status: OrderStatus) {
     throw new HttpError(409, `Cannot move order from ${current.status} to ${status}`, { from: current.status, to: status }, 'INVALID_ORDER_TRANSITION');
   }
 
-  const order = await Order.findOneAndUpdate({ _id: id, status: current.status }, { $set: { status } }, { new: true });
+  const order = await Order.findOneAndUpdate({ _id: id, status: current.status }, { $set: { status } }, { returnDocument: 'after' });
   if (!order) throw new HttpError(409, 'Order status changed in another request. Refresh and try again.', undefined, 'ORDER_STATUS_CHANGED');
 
   if (status === 'cancelled') {

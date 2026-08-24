@@ -70,7 +70,7 @@ export async function create(input: Record<string, unknown>) {
 }
 
 export async function update(id: string, input: Record<string, unknown>) {
-  const book = await Book.findByIdAndUpdate(id, input, { new: true, runValidators: true }).lean();
+  const book = await Book.findByIdAndUpdate(id, input, { returnDocument: 'after', runValidators: true }).lean();
   if (!book) throw new HttpError(404, 'Book not found');
   return book;
 }

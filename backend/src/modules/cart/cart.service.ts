@@ -29,7 +29,7 @@ export async function addItem(userId: string, bookId: string, quantity: number) 
   const cart = await Cart.findOneAndUpdate(
     { user: userId },
     { $setOnInsert: { user: userId, items: [] } },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
 
   if (!cart) throw new HttpError(500, 'Failed to initialize cart');

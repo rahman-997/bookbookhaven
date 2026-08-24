@@ -1,17 +1,7 @@
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { internalApiUrl } from '@/lib/api';
-
-const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-
-function isCrossSiteMutation(request: NextRequest) {
-  if (SAFE_METHODS.has(request.method)) return false;
-
-  const origin = request.headers.get('origin');
-  if (origin && origin !== request.nextUrl.origin) return true;
-
-  return request.headers.get('sec-fetch-site') === 'cross-site';
-}
+import { isCrossSiteMutation } from '@/lib/request-security';
 
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   if (isCrossSiteMutation(request)) {

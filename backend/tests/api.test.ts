@@ -33,10 +33,12 @@ describe('BookHaven API', () => {
     expect(res.body.data.status).toBe('ok');
   });
 
-  it('registers a user and returns a token', async () => {
+  it('registers a user and returns a session lifetime', async () => {
     const res = await request(app).post('/api/v1/auth/register').send({ name: 'Test User', email: 'test@example.com', password: 'VeryStrong123!' });
     expect(res.statusCode).toBe(201);
     expect(res.body.data.token).toEqual(expect.any(String));
+    expect(res.body.data.expiresInSeconds).toEqual(expect.any(Number));
+    expect(res.body.data.expiresInSeconds).toBeGreaterThan(0);
     expect(res.body.data.user.email).toBe('test@example.com');
   });
 

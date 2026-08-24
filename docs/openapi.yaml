@@ -1,0 +1,251 @@
+openapi: 3.1.0
+info:
+  title: BookHaven API
+  version: 3.0.0
+  description: REST API for BookHaven catalog, authentication, cart, wishlist, reviews, orders and administration.
+servers:
+  - url: http://localhost:3001/api/v1
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      properties:
+        success: { type: boolean, const: false }
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+            requestId: { type: string }
+    Book:
+      type: object
+      required: [title, slug, author, price, stock]
+      properties:
+        _id: { type: string }
+        title: { type: string }
+        slug: { type: string }
+        author: { type: string }
+        description: { type: string }
+        coverUrl: { type: string, format: uri }
+        isbn: { type: string }
+        price: { type: number, minimum: 0 }
+        stock: { type: integer, minimum: 0 }
+        categories: { type: array, items: { type: string } }
+        featured: { type: boolean }
+    AuthInput:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+    RegisterInput:
+      allOf:
+        - $ref: '#/components/schemas/AuthInput'
+        - type: object
+          required: [name]
+          properties:
+            name: { type: string }
+    ReviewInput:
+      type: object
+      required: [rating]
+      properties:
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        comment: { type: string, maxLength: 2000 }
+    OrderInput:
+      type: object
+      required: [shippingAddress]
+      properties:
+        shippingAddress: { type: string, minLength: 10, maxLength: 500 }
+        paymentMethod:
+          type: string
+          enum: [cash_on_delivery, manual]
+paths:
+  /health:
+    get:
+      summary: Service health
+      responses:
+        '200': { description: Healthy }
+  /auth/register:
+    post:
+      summary: Register customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterInput' }
+      responses:
+        '201': { description: Registered }
+  /auth/login:
+    post:
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthInput' }
+      responses:
+        '200': { description: Authenticated }
+  /auth/me:
+    get:
+      summary: Current user
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Current user }
+  /books:
+    get:
+      summary: List/search books
+      parameters:
+        - { in: query, name: search, schema: { type: string } }
+        - { in: query, name: category, schema: { type: string } }
+        - { in: query, name: sort, schema: { type: string, enum: [newest, oldest, price_asc, price_desc, title] } }
+        - { in: query, name: page, schema: { type: integer, minimum: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100 } }
+      responses:
+        '200': { description: Book list }
+    post:
+      summary: Create book
+      security: [{ bearerAuth: [] }]
+      responses:
+        '201': { description: Created }
+  /books/slug/{slug}:
+    get:
+      summary: Get book by slug
+      parameters:
+        - { in: path, name: slug, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Book }
+        '404': { description: Not found }
+  /books/{id}:
+    get:
+      summary: Get book by id
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Book }
+    patch:
+      summary: Update book
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Updated }
+    delete:
+      summary: Delete book
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Deleted }
+  /cart:
+    get:
+      summary: Current cart
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Cart }
+    delete:
+      summary: Clear cart
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Cleared }
+  /cart/items:
+    post:
+      summary: Add cart item
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Updated cart }
+  /cart/items/{bookId}:
+    patch:
+      summary: Change cart quantity
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: bookId, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Updated cart }
+    delete:
+      summary: Remove cart item
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: bookId, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Updated cart }
+  /wishlist:
+    get:
+      summary: Current wishlist
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Wishlist }
+  /wishlist/{bookId}:
+    post:
+      summary: Save a book
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: bookId, required: true, schema: { type: string } }
+      responses:
+        '201': { description: Saved }
+    delete:
+      summary: Remove saved book
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: bookId, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Removed }
+  /reviews/book/{bookId}:
+    get:
+      summary: Reviews for book
+      parameters:
+        - { in: path, name: bookId, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Reviews and rating summary }
+    put:
+      summary: Create or update own review
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: bookId, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewInput' }
+      responses:
+        '201': { description: Review saved }
+  /orders:
+    get:
+      summary: Current user's orders
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Orders }
+    post:
+      summary: Checkout current cart
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrderInput' }
+      responses:
+        '201': { description: Order created }
+  /orders/admin/all:
+    get:
+      summary: List all orders
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Admin order list }
+  /orders/admin/{id}/status:
+    patch:
+      summary: Update order status
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Updated order }
+  /admin/stats:
+    get:
+      summary: Admin dashboard metrics
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Dashboard metrics }

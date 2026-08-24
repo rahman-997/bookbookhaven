@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install backend
+        working-directory: backend
+        run: npm install
+      - name: Install frontend
+        working-directory: frontend
+        run: npm install
+      - name: Typecheck backend
+        working-directory: backend
+        run: npm run typecheck
+      - name: Test backend
+        working-directory: backend
+        run: npm test
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build

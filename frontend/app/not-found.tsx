@@ -1,0 +1,2 @@
+import Link from 'next/link';
+export default function NotFound() { return <main className="mx-auto max-w-3xl px-5 py-28 text-center"><p className="text-7xl">📖</p><h1 className="mt-5 text-4xl font-black">This page slipped off the shelf.</h1><p className="mt-3 text-slate-400">The book or page you requested could not be found.</p><Link href="/" className="mt-7 inline-block rounded-xl bg-indigo-500 px-5 py-3 font-bold">Back to BookHaven</Link></main>; }

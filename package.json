@@ -1,0 +1,17 @@
+{
+  "name": "bookhaven",
+  "version": "4.0.0",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install --prefix backend && npm install --prefix frontend",
+    "typecheck": "npm run typecheck --prefix backend && npm run typecheck --prefix frontend",
+    "build": "npm run build --prefix backend && npm run build --prefix frontend",
+    "test": "npm test --prefix backend",
+    "build:free": "npm install --include=dev --no-audit --no-fund --prefix backend && npm run build --prefix backend && npm install --include=dev --no-audit --no-fund --prefix frontend && npm run build --prefix frontend",
+    "start:free": "node scripts/start-free-hosting.mjs",
+    "seed:free": "node backend/dist/seed.js"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  }
+}

@@ -1,7 +1,7 @@
 import { HttpError } from '../../errors/http-error';
 import { Book } from '../books/book.model';
 import { Cart } from '../cart/cart.model';
-import { Order, type OrderDocument, type OrderStatus, type PaymentMethod } from './order.model';
+import { Order, type OrderStatus, type PaymentMethod } from './order.model';
 
 const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
   pending: ['confirmed', 'cancelled'],
@@ -42,7 +42,7 @@ export async function create(userId: string, shippingAddress: string, paymentMet
   const books = await Book.find({ _id: { $in: bookIds } });
   const byId = new Map(books.map((book) => [String(book._id), book]));
   const decremented: Array<{ id: string; quantity: number }> = [];
-  let order: OrderDocument | null = null;
+  let orderId: string | null = null;
 
   try {
     const items = originalCartItems.map((item) => {
@@ -59,13 +59,14 @@ export async function create(userId: string, shippingAddress: string, paymentMet
       decremented.push({ id: String(item.book), quantity: item.quantity });
     }
 
-    order = await Order.create({ user: userId, items, subtotal, status: 'pending', paymentMethod, shippingAddress });
+    const order = await Order.create({ user: userId, items, subtotal, status: 'pending', paymentMethod, shippingAddress });
+    orderId = String(order._id);
     cart.items = [];
     cart.checkoutLockedAt = null;
     await cart.save();
     return order;
   } catch (error) {
-    if (order) await Order.deleteOne({ _id: order._id }).catch(() => undefined);
+    if (orderId) await Order.deleteOne({ _id: orderId }).catch(() => undefined);
     await Promise.allSettled(decremented.map((item) => Book.updateOne({ _id: item.id }, { $inc: { stock: item.quantity } })));
     cart.items = originalCartItems;
     cart.checkoutLockedAt = null;

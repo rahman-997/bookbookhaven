@@ -2,6 +2,12 @@
 
 BookHaven is a production-oriented full-stack bookstore built with **Next.js 16, React 19, Express 5, TypeScript, MongoDB/Mongoose and Zod 4**. It includes a zero-cost deployment profile designed for **GitHub + one Render Free service**, with MongoDB Atlas M0 for durable data or an automatic embedded demo database for portfolio previews.
 
+**Live demo:** [bookbookhaven-free.onrender.com](https://bookbookhaven-free.onrender.com)
+
+> The portfolio deployment uses an ephemeral demo database when Atlas is not
+> configured, so demo content can reset after a restart. The free instance may
+> also take a short moment to wake after inactivity.
+
 ## What is included
 
 ### Storefront

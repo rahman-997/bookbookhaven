@@ -1,6 +1,6 @@
 # BookHaven 4.0
 
-BookHaven is a production-oriented full-stack bookstore built with **Next.js 16, React 19, Express 5, TypeScript, MongoDB/Mongoose and Zod 4**. It includes a zero-cost deployment profile designed for **GitHub + one Render Free service + MongoDB Atlas M0**.
+BookHaven is a production-oriented full-stack bookstore built with **Next.js 16, React 19, Express 5, TypeScript, MongoDB/Mongoose and Zod 4**. It includes a zero-cost deployment profile designed for **GitHub + one Render Free service**, with MongoDB Atlas M0 for durable data or an automatic embedded demo database for portfolio previews.
 
 ## What is included
 
@@ -177,7 +177,7 @@ Render Free Web Service
    ├─ Next.js public process
    └─ Express internal process on 127.0.0.1
    ↓
-MongoDB Atlas M0 Free
+MongoDB Atlas M0 Free (durable) or embedded MongoDB (ephemeral demo)
 ```
 
 Build command:
@@ -212,6 +212,7 @@ No Stripe or paid transaction API is required. The default checkout supports `ca
 ## Notes
 
 - Do not commit `.env` files or real secrets.
+- When `MONGO_URI` is missing, free-hosting mode automatically starts an ephemeral embedded MongoDB and seeds demo data. Its contents reset when the service is rebuilt or restarted; use Atlas for durable production data.
 - Free hosting can cold-start after inactivity.
 - The order flow is appropriate for demos, portfolios and small manual-fulfillment stores. A real online payment provider can be added later behind the order service.
 

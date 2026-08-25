@@ -1,15 +1,17 @@
 import { spawn } from 'node:child_process';
 import http from 'node:http';
+import { createRequire } from 'node:module';
 import process from 'node:process';
 
 const publicPort = process.env.PORT || '10000';
 const backendPort = process.env.BACKEND_PORT || '3001';
 const nodeEnv = process.env.NODE_ENV || 'production';
 const internalApiUrl = process.env.INTERNAL_API_URL || `http://127.0.0.1:${backendPort}/api/v1`;
-const mongoUri = String(process.env.MONGO_URI || '').trim();
+const configuredMongoUri = String(process.env.MONGO_URI || '').trim();
 
 const children = new Set();
 let shuttingDown = false;
+let embeddedMongo;
 
 function run(command, args, options = {}) {
   const child = spawn(command, args, {
@@ -53,6 +55,23 @@ function startSetupServer() {
   });
 }
 
+async function ensureMongoUri() {
+  if (configuredMongoUri && configuredMongoUri !== 'PENDING_ATLAS') return true;
+
+  try {
+    const requireFromBackend = createRequire(new URL('../backend/package.json', import.meta.url));
+    const { MongoMemoryServer } = requireFromBackend('mongodb-memory-server');
+    embeddedMongo = await MongoMemoryServer.create({ instance: { dbName: 'bookhaven' } });
+    process.env.MONGO_URI = embeddedMongo.getUri();
+    console.warn('[bookhaven] MONGO_URI is not configured; using an ephemeral embedded MongoDB for this portfolio demo');
+    return true;
+  } catch (error) {
+    console.error('[bookhaven] embedded MongoDB failed to start; falling back to setup mode', error);
+    startSetupServer();
+    return false;
+  }
+}
+
 async function seedIfEnabled() {
   if (!['1', 'true', 'yes'].includes(String(process.env.AUTO_SEED || '').toLowerCase())) return;
   console.log('[bookhaven] AUTO_SEED enabled; applying idempotent seed data...');
@@ -62,20 +81,19 @@ async function seedIfEnabled() {
   await waitForExit(seed, 'seed');
 }
 
-function shutdown(signal) {
+async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[bookhaven] ${signal} received; stopping services...`);
   for (const child of children) child.kill('SIGTERM');
+  if (embeddedMongo) await embeddedMongo.stop().catch(() => undefined);
   setTimeout(() => process.exit(0), 8000).unref();
 }
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));
 
-if (!mongoUri || mongoUri === 'PENDING_ATLAS') {
-  startSetupServer();
-} else {
+if (await ensureMongoUri()) {
   try {
     await seedIfEnabled();
 
@@ -97,7 +115,7 @@ if (!mongoUri || mongoUri === 'PENDING_ATLAS') {
     const fail = (name) => (code, signal) => {
       if (shuttingDown) return;
       console.error(`[bookhaven] ${name} stopped unexpectedly: code=${code} signal=${signal}`);
-      shutdown(`${name}_EXIT`);
+      void shutdown(`${name}_EXIT`);
       process.exitCode = code || 1;
     };
 
@@ -108,7 +126,7 @@ if (!mongoUri || mongoUri === 'PENDING_ATLAS') {
     console.log(`[bookhaven] backend internal URL: ${internalApiUrl}`);
   } catch (error) {
     console.error('[bookhaven] startup failed', error);
-    shutdown('STARTUP_FAILURE');
+    void shutdown('STARTUP_FAILURE');
     process.exit(1);
   }
 }

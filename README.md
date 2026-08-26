@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/rahman-997/bookbookhaven/actions/workflows/ci.yml/badge.svg)](https://github.com/rahman-997/bookbookhaven/actions/workflows/ci.yml)
 
+![BookHaven product preview](https://raw.githubusercontent.com/rahman-997/portfolio/main/public/projects/bookhaven-cover.jpg)
+
 BookHaven is a production-oriented full-stack bookstore built with **Next.js 16, React 19, Express 5, TypeScript, MongoDB/Mongoose and Zod 4**. It includes a zero-cost deployment profile designed for **GitHub + one Render Free service**, with MongoDB Atlas M0 for durable data or an automatic embedded demo database for portfolio previews.
 
 **Live demo:** [bookbookhaven-free.onrender.com](https://bookbookhaven-free.onrender.com)  

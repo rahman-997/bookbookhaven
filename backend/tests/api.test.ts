@@ -122,7 +122,7 @@ describe('BookHaven API', () => {
     const { token } = await registerAdmin('catalog-admin@example.com');
     const auth = { Authorization: `Bearer ${token}` };
     const payload = {
-      title: 'Unique Book', slug: 'unique-book', author: 'Author', description: 'Catalog test', coverUrl: 'https://example.com/book.jpg', isbn: '9780000000001', price: 12, stock: 3, categories: ['test'], featured: false
+      title: 'Unique Book', slug: 'unique-book', author: 'Author', description: 'Catalog test', coverUrl: 'https://example.com/book.jpg', isbn: '9780306406157', price: 12, stock: 3, categories: ['test'], featured: false
     };
     expect((await request(app).post('/api/v1/books').set(auth).send(payload)).statusCode).toBe(201);
     const duplicate = await request(app).post('/api/v1/books').set(auth).send({ ...payload, title: 'Duplicate' });

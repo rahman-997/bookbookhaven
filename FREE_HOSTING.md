@@ -1,68 +1,67 @@
 # BookHaven — $0 deployment profile
 
-BookHaven is designed to run with no mandatory monthly hosting bill for a demo, portfolio, or small manually fulfilled store.
+BookHaven is designed to run with no mandatory monthly hosting bill for a portfolio, demo, prototype, or small manually fulfilled store.
 
 ## Free stack
 
-- **Git + source control:** GitHub Free
-- **Verification:** GitHub Actions and the Render production build gate
+- **Source + CI:** GitHub Free + GitHub Actions
 - **Web:** one Render Free Web Service
 - **Durable database:** MongoDB Atlas M0 Free
-- **Demo fallback:** embedded ephemeral MongoDB when Atlas is not configured
-- **TLS + subdomain:** Render-managed `*.onrender.com`
-- **Local development:** Docker Compose + MongoDB container
+- **Demo database fallback:** embedded ephemeral MongoDB
+- **TLS/subdomain:** Render-managed `*.onrender.com`
+- **Local development:** Docker Compose + MongoDB
 
-## Current Render service
-
-The repository is configured for:
+## Current production profile
 
 ```text
-https://bookbookhaven-free.onrender.com
+Repository: https://github.com/rahman-997/bookbookhaven
+Branch: main
+Public URL: https://bookbookhaven-free.onrender.com
+Health: https://bookbookhaven-free.onrender.com/api/health
 ```
 
-The service tracks `main` from:
+The Render service uses automatic deployment from `main`. A normal push already triggers deployment; do not manually trigger a second deploy when `autoDeploy` is enabled.
 
-```text
-https://github.com/rahman-997/bookbookhaven
-```
+## One-service architecture
 
-## Why one Render service?
+`npm run start:free` runs the application inside one Render service:
 
-`npm run start:free` starts two application processes inside one free web service:
+1. Next.js standalone runtime listens on public `$PORT`.
+2. Express listens only on `127.0.0.1:${BACKEND_PORT}`.
+3. Next.js reaches Express through `INTERNAL_API_URL`.
+4. Express connects to MongoDB through `MONGO_URI` when configured.
+5. The browser stores no API JWT in JavaScript-readable storage; the Next.js BFF translates an HttpOnly session cookie into the internal Bearer request.
 
-1. Next.js listens on public `$PORT`.
-2. Express listens on `127.0.0.1:3001` only.
-3. Next.js calls Express through `INTERNAL_API_URL=http://127.0.0.1:3001/api/v1`.
-4. Express connects to `MONGO_URI` when a durable MongoDB deployment is configured.
-
-The browser never needs the internal Express hostname or JWT. Authentication is translated by the Next.js BFF from an HttpOnly cookie to a Bearer token.
+The launcher mirrors the required Next.js `public` and static assets into the standalone runtime. Render is a deployment profile, not an application dependency.
 
 ## Database modes
 
-### Durable mode — recommended
+### Atlas M0 — recommended durable mode
 
-Set `MONGO_URI` to a MongoDB Atlas M0 connection string. Cart, wishlist, reviews, users, orders, inventory, and admin data then survive Render restarts and redeployments.
+Set `MONGO_URI` to an Atlas M0 connection string. Users, carts, wishlists, reviews, orders and inventory then survive Render restarts and deployments.
 
-This is the intended production/portfolio configuration.
+Atlas uses a replica-set topology, so BookHaven automatically enables MongoDB transactions for checkout and cancellation. Cart lock acquisition, inventory updates, order creation and cart clearing are committed atomically. Cancellation restores inventory and changes status in the same transaction.
+
+### Standalone/local MongoDB
+
+A normal standalone MongoDB remains supported for simple local development. BookHaven detects that transactions are unavailable and automatically switches to the compensation implementation rather than failing startup or requiring a replica set.
 
 ### Ephemeral demo fallback
 
-If `MONGO_URI` is missing or equals `PENDING_ATLAS`, the current combined hosting launcher attempts to start `mongodb-memory-server` so the public portfolio demo remains usable without a paid database or external secret.
+If `MONGO_URI` is absent or set to the setup sentinel used by the launcher, the free-hosting process can start an embedded MongoDB for a disposable portfolio preview. This mode is intentionally non-durable; data can reset after sleep, restart or redeploy.
 
-This mode is deliberately **not durable**. Data can reset when the Render instance restarts, sleeps, or redeploys. It is suitable only for a disposable demo.
-
-If the embedded MongoDB process cannot start, the launcher falls back to a small setup page. `/api/health` then reports `setup-required` instead of pretending that persistent storage is available.
+If the embedded database cannot start, the launcher falls back to setup mode and `/api/health` reports that persistent configuration is required instead of pretending storage is durable.
 
 ## Required secrets for durable operation
 
-Never commit these values:
+Never commit:
 
 - `MONGO_URI`
 - `JWT_SECRET`
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 
-Recommended public/runtime values:
+Recommended non-secret production values:
 
 ```text
 NODE_VERSION=24
@@ -71,25 +70,26 @@ NEXT_PUBLIC_SITE_URL=https://bookbookhaven-free.onrender.com
 INTERNAL_API_URL=http://127.0.0.1:3001/api/v1
 BACKEND_PORT=3001
 CORS_ORIGIN=https://bookbookhaven-free.onrender.com
+JWT_EXPIRES_IN=7d
 ```
 
-`AUTO_SEED=true` is useful for the disposable portfolio demo because it restores idempotent sample data after an ephemeral reset. For a real persistent catalog, choose the seed policy intentionally and avoid using demo credentials.
+Production environment validation rejects default/short JWT secrets, weak/default admin passwords, localhost production MongoDB URIs and wildcard credentialed CORS.
 
 ## MongoDB Atlas M0
 
-Create an M0 Free cluster and a dedicated database user. Prefer Render outbound ranges in Atlas Network Access when available. If `0.0.0.0/0` is temporarily necessary, use a strong unique database password and least-privilege database credentials.
+Create an M0 cluster and a dedicated database user with least-privilege credentials. Prefer restricted Network Access ranges when practical. If broad access is temporarily required for a dynamic free-hosting environment, use a strong unique database password and restrict the database user's permissions.
 
-Example URI shape:
+URI shape:
 
 ```text
 mongodb+srv://<user>:<password>@<cluster-host>/bookhaven?retryWrites=true&w=majority
 ```
 
-After `MONGO_URI` is added to Render, the same code automatically uses Atlas on the next deploy/restart; Render is not part of the data model or business logic.
+After `MONGO_URI` is added, the same application code uses Atlas automatically on the next deployment/restart.
 
 ## Quality gate
 
-The production Render build is intentionally strict. `npm run build:free` performs:
+`npm run build:free` is the production build gate:
 
 ```text
 backend install
@@ -98,37 +98,29 @@ backend install
 → backend production build
 → frontend install
 → frontend typecheck
-→ Next.js production build
+→ frontend production build
 ```
 
-Any failure stops deployment.
+Any failing command stops the build and blocks deployment. GitHub Actions executes equivalent checks on every push and pull request with read-only repository permission, concurrency cancellation, plus a standalone-runtime artifact check.
 
-You can run the same project-level verification locally with:
+Local full verification:
 
 ```bash
 npm run verify
 ```
 
-## Render commands
-
-Build:
+Free-hosting gate:
 
 ```bash
 npm run build:free
 ```
 
-Start:
+Start profile:
 
 ```bash
 npm run start:free
 ```
 
-Health:
-
-```text
-/api/health
-```
-
 ## Free-tier tradeoffs
 
-Free web services may sleep while idle and cold-start on the next request. Atlas M0 has storage and performance limits. The embedded fallback loses data on restart. This profile is suitable for demos, learning, portfolios, prototypes, and early/small stores rather than an SLA-backed high-traffic production shop.
+Render Free services may sleep while idle and cold-start on the next request. Atlas M0 has capacity limits. Embedded demo storage is disposable. This deployment profile is appropriate for a portfolio, demo, prototype, learning project, or small manually fulfilled workload—not an SLA-backed high-traffic production store.

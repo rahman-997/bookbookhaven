@@ -2,25 +2,48 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import BookActions from '@/app/components/BookActions';
+import BookCard from '@/app/components/BookCard';
 import BookCover from '@/app/components/BookCover';
 import { ChevronLeftIcon, ShieldIcon, SparkleIcon, StarIcon } from '@/app/components/Icons';
-import { getBookBySlug, getReviews } from '@/lib/api';
+import { getBookBySlug, getRelatedBooks, getReviews } from '@/lib/api';
 import ReviewPanel from './ReviewPanel';
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
   const book = await getBookBySlug(slug);
-  if (!book) return { title: 'Book not found | BookHaven' };
-  return { title: `${book.title} | BookHaven`, description: book.description.slice(0, 160) };
+  if (!book) return { title: 'Book not found', robots: { index: false, follow: false } };
+  const description = book.description.slice(0, 160) || `${book.title} by ${book.author} at BookHaven.`;
+  const images = book.coverUrl ? [{ url: book.coverUrl, alt: `${book.title} cover` }] : undefined;
+  return {
+    title: book.title,
+    description,
+    alternates: { canonical: `/books/${book.slug}` },
+    openGraph: { title: book.title, description, type: 'book', url: `/books/${book.slug}`, images },
+    twitter: { card: book.coverUrl ? 'summary_large_image' : 'summary', title: book.title, description, images: book.coverUrl ? [book.coverUrl] : undefined }
+  };
 }
 
 export default async function BookPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const book = await getBookBySlug(slug);
   if (!book) notFound();
-  const reviews = await getReviews(book._id);
+  const [reviews, related] = await Promise.all([getReviews(book._id), getRelatedBooks(book)]);
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
+  const jsonLd = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'Book',
+    name: book.title,
+    author: { '@type': 'Person', name: book.author },
+    description: book.description,
+    image: book.coverUrl,
+    isbn: book.isbn,
+    url: `${siteUrl}/books/${book.slug}`,
+    aggregateRating: reviews.count ? { '@type': 'AggregateRating', ratingValue: Number(reviews.averageRating.toFixed(2)), ratingCount: reviews.count, bestRating: 5, worstRating: 1 } : undefined,
+    offers: { '@type': 'Offer', priceCurrency: 'USD', price: book.price.toFixed(2), availability: book.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: `${siteUrl}/books/${book.slug}` }
+  }).replace(/</g, '\\u003c');
 
   return <main className="page-shell pb-28 pt-8 md:pb-20 md:pt-12">
+    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd }} />
     <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-bold text-slate-500 transition hover:text-amber-100"><ChevronLeftIcon size={17}/> Back to library</Link>
     <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(280px,410px)_1fr] lg:gap-16">
       <div className="relative mx-auto w-full max-w-[410px]">
@@ -44,5 +67,6 @@ export default async function BookPage({ params }: { params: Promise<{ slug: str
       </section>
     </div>
     <ReviewPanel bookId={book._id} initialReviews={reviews.reviews} initialAverage={reviews.averageRating} initialCount={reviews.count} />
+    {related.length ? <section className="mt-16 border-t border-white/10 pt-10"><p className="section-kicker">Keep exploring</p><div className="mt-2 flex items-end justify-between gap-4"><h2 className="text-2xl font-black tracking-tight md:text-3xl">Related reads</h2><Link href="/" className="text-sm font-bold text-amber-200 hover:underline">Browse all</Link></div><div className="mt-6 grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">{related.map(item => <BookCard key={item._id} book={item} />)}</div></section> : null}
   </main>;
 }

@@ -14,6 +14,13 @@ type Stats = {
   recentOrders: Order[];
 };
 
+type Pagination = {
+  page: number;
+  limit: number;
+  total: number;
+  pages: number;
+};
+
 const transitions: Record<Order['status'], Order['status'][]> = {
   pending: ['pending', 'confirmed', 'cancelled'],
   confirmed: ['confirmed', 'shipped', 'cancelled'],
@@ -22,48 +29,97 @@ const transitions: Record<Order['status'], Order['status'][]> = {
   cancelled: ['cancelled']
 };
 
+const emptyPagination: Pagination = { page: 1, limit: 20, total: 0, pages: 1 };
+
 export default function AdminPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [books, setBooks] = useState<Book[]>([]);
+  const [bookMeta, setBookMeta] = useState<Pagination>(emptyPagination);
+  const [orderMeta, setOrderMeta] = useState<Pagination>({ ...emptyPagination, limit: 25 });
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loadingStats, setLoadingStats] = useState(true);
+  const [loadingBooks, setLoadingBooks] = useState(true);
+  const [loadingOrders, setLoadingOrders] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState('');
   const [editingBook, setEditingBook] = useState<Book | null>(null);
+  const [bookSearchDraft, setBookSearchDraft] = useState('');
+  const [bookSearch, setBookSearch] = useState('');
+  const [bookPage, setBookPage] = useState(1);
+  const [orderSearchDraft, setOrderSearchDraft] = useState('');
+  const [orderSearch, setOrderSearch] = useState('');
+  const [orderStatus, setOrderStatus] = useState<'all' | Order['status']>('all');
+  const [orderPage, setOrderPage] = useState(1);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const loadStats = useCallback(async () => {
+    setLoadingStats(true);
     try {
-      const [statsRes, ordersRes, booksRes] = await Promise.all([
-        fetch('/api/backend/admin/stats', { cache: 'no-store' }),
-        fetch('/api/backend/orders/admin/all', { cache: 'no-store' }),
-        fetch('/api/backend/books?limit=100&sort=title', { cache: 'no-store' })
-      ]);
-
-      if (statsRes.status === 401 || statsRes.status === 403) {
+      const response = await fetch('/api/backend/admin/stats', { cache: 'no-store' });
+      if (response.status === 401 || response.status === 403) {
         setMessage('Admin sign-in required.');
         return;
       }
-
-      if (!statsRes.ok || !ordersRes.ok || !booksRes.ok) {
-        setMessage('Could not load the complete admin dashboard.');
+      if (!response.ok) {
+        setMessage('Could not load admin statistics.');
         return;
       }
-
-      setStats((await statsRes.json()).data);
-      setOrders((await ordersRes.json()).data ?? []);
-      setBooks((await booksRes.json()).data ?? []);
+      setStats((await response.json()).data);
     } catch {
       setMessage('Could not reach the BookHaven API.');
     } finally {
-      setLoading(false);
+      setLoadingStats(false);
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const loadBooks = useCallback(async () => {
+    setLoadingBooks(true);
+    const params = new URLSearchParams({ page: String(bookPage), limit: '20', sort: 'title' });
+    if (bookSearch) params.set('search', bookSearch);
+    try {
+      const response = await fetch(`/api/backend/books?${params.toString()}`, { cache: 'no-store' });
+      if (!response.ok) {
+        setMessage('Could not load catalog inventory.');
+        return;
+      }
+      const payload = await response.json();
+      setBooks(payload.data ?? []);
+      if (payload.meta) setBookMeta(payload.meta);
+    } catch {
+      setMessage('Could not reach the BookHaven API.');
+    } finally {
+      setLoadingBooks(false);
+    }
+  }, [bookPage, bookSearch]);
+
+  const loadOrders = useCallback(async () => {
+    setLoadingOrders(true);
+    const params = new URLSearchParams({ page: String(orderPage), limit: '25' });
+    if (orderSearch) params.set('search', orderSearch);
+    if (orderStatus !== 'all') params.set('status', orderStatus);
+    try {
+      const response = await fetch(`/api/backend/orders/admin/all?${params.toString()}`, { cache: 'no-store' });
+      if (response.status === 401 || response.status === 403) {
+        setMessage('Admin sign-in required.');
+        return;
+      }
+      if (!response.ok) {
+        setMessage('Could not load the order queue.');
+        return;
+      }
+      const payload = await response.json();
+      setOrders(payload.data ?? []);
+      if (payload.meta) setOrderMeta(payload.meta);
+    } catch {
+      setMessage('Could not reach the BookHaven API.');
+    } finally {
+      setLoadingOrders(false);
+    }
+  }, [orderPage, orderSearch, orderStatus]);
+
+  useEffect(() => { void loadStats(); }, [loadStats]);
+  useEffect(() => { void loadBooks(); }, [loadBooks]);
+  useEffect(() => { void loadOrders(); }, [loadOrders]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -107,7 +163,8 @@ export default function AdminPage() {
       setMessage(editing ? 'Book changes published to the live catalog.' : 'Book created and added to the live catalog.');
       setEditingBook(null);
       event.currentTarget.reset();
-      await load();
+      setBookPage(1);
+      await Promise.all([loadStats(), loadBooks()]);
     } finally {
       setBusy(false);
     }
@@ -120,15 +177,17 @@ export default function AdminPage() {
     }
 
     const response = await fetch(`/api/backend/books/${id}`, { method: 'DELETE' });
+    const payload = await response.json().catch(() => null);
     if (!response.ok) {
-      setMessage('Could not delete book.');
+      setMessage(payload?.error?.message ?? 'Could not delete book.');
       return;
     }
 
     setMessage('Book and dependent reader data removed.');
     setConfirmDelete('');
     if (editingBook?._id === id) setEditingBook(null);
-    await load();
+    if (books.length === 1 && bookPage > 1) setBookPage((page) => page - 1);
+    await Promise.all([loadStats(), loadBooks()]);
   }
 
   async function updateOrder(id: string, status: Order['status']) {
@@ -144,7 +203,19 @@ export default function AdminPage() {
     }
 
     setMessage(`Order moved to ${status}.`);
-    await load();
+    await Promise.all([loadStats(), loadOrders()]);
+  }
+
+  function submitBookSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBookPage(1);
+    setBookSearch(bookSearchDraft.trim());
+  }
+
+  function submitOrderSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setOrderPage(1);
+    setOrderSearch(orderSearchDraft.trim());
   }
 
   const metrics = stats
@@ -170,12 +241,12 @@ export default function AdminPage() {
       </div>
 
       {message ? (
-        <div aria-live="polite" className={`notice mt-6 ${message.includes('required') || message.includes('Could') ? 'notice--error' : 'notice--success'}`}>
+        <div aria-live="polite" className={`notice mt-6 ${message.includes('required') || message.includes('Could') || message.includes('cannot') ? 'notice--error' : 'notice--success'}`}>
           {message}
         </div>
       ) : null}
 
-      {loading ? <div className="surface mt-8 h-24 animate-pulse rounded-2xl" aria-label="Loading admin dashboard" /> : null}
+      {loadingStats ? <div className="surface mt-8 h-24 animate-pulse rounded-2xl" aria-label="Loading admin dashboard" /> : null}
 
       {stats ? (
         <section className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
@@ -226,10 +297,17 @@ export default function AdminPage() {
 
         <section className="space-y-9">
           <div>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-end justify-between gap-4">
               <div><p className="section-kicker">Inventory</p><h2 className="mt-1 text-2xl font-black">Catalog health</h2></div>
-              <span className="text-xs text-slate-600">{books.length} loaded</span>
+              <span className="text-xs text-slate-600">{bookMeta.total} titles</span>
             </div>
+            <form onSubmit={submitBookSearch} className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <label className="sr-only" htmlFor="admin-book-search">Search inventory</label>
+              <input id="admin-book-search" value={bookSearchDraft} onChange={(event) => setBookSearchDraft(event.target.value)} placeholder="Search title, author or catalog text" className="field flex-1" />
+              <button className="button button--ghost">Search catalog</button>
+              {bookSearch ? <button type="button" onClick={() => { setBookSearchDraft(''); setBookSearch(''); setBookPage(1); }} className="button button--ghost">Clear</button> : null}
+            </form>
+            {loadingBooks ? <div className="surface mt-4 h-24 animate-pulse rounded-2xl" aria-label="Loading inventory" /> : null}
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               {books.map((book) => (
                 <article key={book._id} className={`glass rounded-2xl p-4 ${editingBook?._id === book._id ? 'ring-1 ring-violet-400/60' : ''}`}>
@@ -248,16 +326,41 @@ export default function AdminPage() {
                   </div>
                 </article>
               ))}
-              {!loading && books.length === 0 ? <p className="text-sm text-slate-500">No books in the catalog yet.</p> : null}
+              {!loadingBooks && books.length === 0 ? <p className="text-sm text-slate-500">No catalog entries match this view.</p> : null}
+            </div>
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <button type="button" disabled={bookMeta.page <= 1 || loadingBooks} onClick={() => setBookPage((page) => Math.max(1, page - 1))} className="button button--ghost disabled:opacity-40">Previous</button>
+              <span className="text-xs text-slate-500">Page {bookMeta.page} of {bookMeta.pages}</span>
+              <button type="button" disabled={bookMeta.page >= bookMeta.pages || loadingBooks} onClick={() => setBookPage((page) => Math.min(bookMeta.pages, page + 1))} className="button button--ghost disabled:opacity-40">Next</button>
             </div>
           </div>
 
           <div>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-end justify-between gap-4">
               <div><p className="section-kicker">Fulfillment</p><h2 className="mt-1 text-2xl font-black">Order queue</h2></div>
-              <span className="text-xs text-slate-600">{orders.length} orders</span>
+              <span className="text-xs text-slate-600">{orderMeta.total} matching orders</span>
             </div>
+            <div className="mt-4 grid gap-2 lg:grid-cols-[1fr_210px_auto]">
+              <form onSubmit={submitOrderSearch} className="contents">
+                <label className="sr-only" htmlFor="admin-order-search">Search orders</label>
+                <input id="admin-order-search" value={orderSearchDraft} onChange={(event) => setOrderSearchDraft(event.target.value)} placeholder="Order ID, reader, book or address" className="field" />
+                <label className="sr-only" htmlFor="admin-order-status">Filter by status</label>
+                <select id="admin-order-status" value={orderStatus} onChange={(event) => { setOrderStatus(event.target.value as 'all' | Order['status']); setOrderPage(1); }} className="field">
+                  <option value="all">All statuses</option>
+                  <option value="pending">Pending</option>
+                  <option value="confirmed">Confirmed</option>
+                  <option value="shipped">Shipped</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+                <button className="button button--ghost">Search orders</button>
+              </form>
+            </div>
+            {(orderSearch || orderStatus !== 'all') ? (
+              <button type="button" onClick={() => { setOrderSearchDraft(''); setOrderSearch(''); setOrderStatus('all'); setOrderPage(1); }} className="mt-2 text-xs font-bold text-slate-500 underline underline-offset-4">Reset order filters</button>
+            ) : null}
             <div className="glass mt-4 overflow-hidden rounded-[1.4rem]">
+              {loadingOrders ? <div className="h-24 animate-pulse" aria-label="Loading order queue" /> : null}
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[760px] text-left text-sm">
                   <thead className="border-b border-white/10 text-[10px] uppercase tracking-[.13em] text-slate-600"><tr><th className="p-4">Order</th><th className="p-4">Reader</th><th className="p-4">Items</th><th className="p-4">Total</th><th className="p-4">Next state</th></tr></thead>
@@ -274,7 +377,12 @@ export default function AdminPage() {
                   </tbody>
                 </table>
               </div>
-              {orders.length === 0 ? <p className="p-6 text-sm text-slate-500">No orders yet.</p> : null}
+              {!loadingOrders && orders.length === 0 ? <p className="p-6 text-sm text-slate-500">No orders match the current filters.</p> : null}
+            </div>
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <button type="button" disabled={orderMeta.page <= 1 || loadingOrders} onClick={() => setOrderPage((page) => Math.max(1, page - 1))} className="button button--ghost disabled:opacity-40">Previous</button>
+              <span className="text-xs text-slate-500">Page {orderMeta.page} of {orderMeta.pages}</span>
+              <button type="button" disabled={orderMeta.page >= orderMeta.pages || loadingOrders} onClick={() => setOrderPage((page) => Math.min(orderMeta.pages, page + 1))} className="button button--ghost disabled:opacity-40">Next</button>
             </div>
           </div>
         </section>

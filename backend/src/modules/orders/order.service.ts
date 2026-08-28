@@ -15,6 +15,13 @@ const CHECKOUT_LOCK_MS = 5 * 60_000;
 export async function listForUser(userId: string) {
   return Order.find({ user: userId }).sort({ createdAt: -1 }).lean();
 }
+
+export async function getForUser(userId: string, id: string) {
+  const order = await Order.findOne({ _id: id, user: userId }).lean();
+  if (!order) throw new HttpError(404, 'Order not found', undefined, 'ORDER_NOT_FOUND');
+  return order;
+}
+
 export async function listAll() {
   return Order.find().populate('user', 'name email').sort({ createdAt: -1 }).limit(200).lean();
 }
@@ -27,7 +34,7 @@ export async function create(userId: string, shippingAddress: string, paymentMet
       'items.0': { $exists: true },
       $or: [{ checkoutLockedAt: null }, { checkoutLockedAt: { $lt: lockCutoff } }]
     },
-    { $set: { checkoutLockedAt: new Date() } },
+    { $set: { checkoutLockedAt: new Date() }, $inc: { __v: 1 } },
     { returnDocument: 'after' }
   );
 

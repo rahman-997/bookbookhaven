@@ -18,7 +18,7 @@ export const listOrdersQuerySchema = z.object({
 
 export const adminListOrdersQuerySchema = listOrdersQuerySchema.extend({
   limit: z.coerce.number().int().min(1).max(100).default(50),
-  search: z.string().trim().max(120).optional()
+  search: z.string().trim().min(1).max(120).optional()
 });
 
 export const updateOrderStatusSchema = z.object({

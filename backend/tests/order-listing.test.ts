@@ -81,6 +81,43 @@ describe('Order listing queries', () => {
     expect(response.body.meta).toEqual({ page: 1, limit: 10, total: 1, pages: 1 });
   });
 
+  it('treats regex metacharacters in admin search as literal text', async () => {
+    const customer = await register('literal-search@example.com', 'Literal Reader');
+    const admin = await register('literal-ops@example.com', 'Literal Operations');
+    await User.updateOne({ _id: admin.userId }, { $set: { role: 'admin' } });
+
+    await createOrder(customer.userId, 'confirmed', 'Symbols .*+? Handbook', '44 Literal Street, Istanbul');
+    await createOrder(customer.userId, 'confirmed', 'Symbols Anything Handbook', '45 Other Street, Istanbul');
+
+    const response = await request(app)
+      .get('/api/v1/orders/admin/all')
+      .query({ search: '.*+?', page: 1, limit: 10 })
+      .set({ Authorization: `Bearer ${admin.token}` });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toHaveLength(1);
+    expect(response.body.data[0].items[0].title).toBe('Symbols .*+? Handbook');
+  });
+
+  it('rejects empty or oversized admin searches before business logic runs', async () => {
+    const admin = await register('query-validation@example.com', 'Query Validation Admin');
+    await User.updateOne({ _id: admin.userId }, { $set: { role: 'admin' } });
+
+    const empty = await request(app)
+      .get('/api/v1/orders/admin/all')
+      .query({ search: '   ' })
+      .set({ Authorization: `Bearer ${admin.token}` });
+    expect(empty.statusCode).toBe(400);
+    expect(empty.body.error.code).toBe('VALIDATION_ERROR');
+
+    const oversized = await request(app)
+      .get('/api/v1/orders/admin/all')
+      .query({ search: 'a'.repeat(121) })
+      .set({ Authorization: `Bearer ${admin.token}` });
+    expect(oversized.statusCode).toBe(400);
+    expect(oversized.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
   it('rejects invalid pagination before business logic runs', async () => {
     const customer = await register('validation@example.com', 'Validation Reader');
     const response = await request(app)

@@ -3,7 +3,8 @@ import type { AuthRequest } from '../auth/auth.middleware';
 import * as service from './order.service';
 
 export async function listMine(req: AuthRequest, res: Response) {
-  res.json({ success: true, data: await service.listForUser(req.auth!.userId) });
+  const result = await service.listForUser(req.auth!.userId, res.locals.validatedQuery);
+  res.json({ success: true, data: result.items, meta: result.pagination });
 }
 
 export async function getMine(req: AuthRequest<{ id: string }>, res: Response) {
@@ -16,7 +17,8 @@ export async function create(req: AuthRequest, res: Response) {
 }
 
 export async function listAll(_req: AuthRequest, res: Response) {
-  res.json({ success: true, data: await service.listAll() });
+  const result = await service.listAll(res.locals.validatedQuery);
+  res.json({ success: true, data: result.items, meta: result.pagination });
 }
 
 export async function updateStatus(req: AuthRequest<{ id: string }>, res: Response) {

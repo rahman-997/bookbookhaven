@@ -76,10 +76,24 @@ describe('BookHaven API', () => {
     const book = await createBook();
     const auth = { Authorization: `Bearer ${token}` };
     await request(app).post('/api/v1/cart/items').set(auth).send({ bookId: String(book._id), quantity: 1 });
-    await Cart.updateOne({ user: user.id }, { $set: { checkoutLockedAt: new Date() } });
+    await Cart.updateOne({ user: user.id }, { $set: { checkoutLockedAt: new Date() }, $inc: { __v: 1 } });
     const res = await request(app).patch(`/api/v1/cart/items/${book._id}`).set(auth).send({ quantity: 2 });
     expect(res.statusCode).toBe(409);
     expect(res.body.error.code).toBe('CART_LOCKED');
+  });
+
+  it('preserves concurrent cart increments without lost updates', async () => {
+    const { token } = await register('cart-race@example.com');
+    const book = await createBook();
+    const auth = { Authorization: `Bearer ${token}` };
+    const results = await Promise.all([
+      request(app).post('/api/v1/cart/items').set(auth).send({ bookId: String(book._id), quantity: 1 }),
+      request(app).post('/api/v1/cart/items').set(auth).send({ bookId: String(book._id), quantity: 1 })
+    ]);
+    expect(results.map((result) => result.statusCode)).toEqual([201, 201]);
+    const cart = await Cart.findOne().lean();
+    expect(cart?.items).toHaveLength(1);
+    expect(cart?.items[0]?.quantity).toBe(2);
   });
 
   it('supports wishlist, review, cart and zero-cost checkout workflow', async () => {
@@ -110,6 +124,38 @@ describe('BookHaven API', () => {
     expect(results.map((r) => r.statusCode).sort()).toEqual([201, 409]);
     expect(await Order.countDocuments()).toBe(1);
     expect((await Book.findById(book._id).lean())?.stock).toBe(2);
+  });
+
+  it('prevents overselling when different carts check out concurrently', async () => {
+    const first = await register('first-buyer@example.com');
+    const second = await register('second-buyer@example.com');
+    const book = await createBook();
+    const firstAuth = { Authorization: `Bearer ${first.token}` };
+    const secondAuth = { Authorization: `Bearer ${second.token}` };
+    await request(app).post('/api/v1/cart/items').set(firstAuth).send({ bookId: String(book._id), quantity: 3 });
+    await request(app).post('/api/v1/cart/items').set(secondAuth).send({ bookId: String(book._id), quantity: 3 });
+
+    const results = await Promise.all([
+      request(app).post('/api/v1/orders').set(firstAuth).send({ shippingAddress: '123 Test Street, Test City', paymentMethod: 'manual' }),
+      request(app).post('/api/v1/orders').set(secondAuth).send({ shippingAddress: '456 Test Street, Test City', paymentMethod: 'manual' })
+    ]);
+
+    expect(results.map((result) => result.statusCode).sort()).toEqual([201, 409]);
+    expect(await Order.countDocuments()).toBe(1);
+    expect((await Book.findById(book._id).lean())?.stock).toBe(1);
+  });
+
+  it('returns order detail only to its owner', async () => {
+    const owner = await register('order-owner@example.com');
+    const other = await register('order-other@example.com');
+    const book = await createBook();
+    const ownerAuth = { Authorization: `Bearer ${owner.token}` };
+    await request(app).post('/api/v1/cart/items').set(ownerAuth).send({ bookId: String(book._id), quantity: 1 });
+    const created = await request(app).post('/api/v1/orders').set(ownerAuth).send({ shippingAddress: '123 Test Street, Test City', paymentMethod: 'manual' });
+    const id = created.body.data._id as string;
+
+    expect((await request(app).get(`/api/v1/orders/${id}`).set(ownerAuth)).statusCode).toBe(200);
+    expect((await request(app).get(`/api/v1/orders/${id}`).set({ Authorization: `Bearer ${other.token}` })).statusCode).toBe(404);
   });
 
   it('enforces order transitions and restores stock only once on cancellation', async () => {

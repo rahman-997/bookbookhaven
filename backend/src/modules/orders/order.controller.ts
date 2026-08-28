@@ -6,6 +6,10 @@ export async function listMine(req: AuthRequest, res: Response) {
   res.json({ success: true, data: await service.listForUser(req.auth!.userId) });
 }
 
+export async function getMine(req: AuthRequest<{ id: string }>, res: Response) {
+  res.json({ success: true, data: await service.getForUser(req.auth!.userId, req.params.id) });
+}
+
 export async function create(req: AuthRequest, res: Response) {
   const order = await service.create(req.auth!.userId, req.body.shippingAddress, req.body.paymentMethod);
   res.status(201).json({ success: true, data: order });

@@ -10,3 +10,4 @@ orderRouter.get('/', controller.listMine);
 orderRouter.post('/', validateBody(createOrderSchema), controller.create);
 orderRouter.get('/admin/all', requireRole('admin'), controller.listAll);
 orderRouter.patch('/admin/:id/status', requireRole('admin'), validateParams(orderIdParamsSchema), validateBody(updateOrderStatusSchema), controller.updateStatus);
+orderRouter.get('/:id', validateParams(orderIdParamsSchema), controller.getMine);

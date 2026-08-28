@@ -17,7 +17,7 @@
   "engines": {
     "node": ">=24 <25"
   },
-  "packageManager": "npm@11.17.0",
+  "packageManager": "npm@11.19.0",
   "author": "Abdulrahman Hajar",
   "homepage": "https://bookbookhaven-free.onrender.com",
   "repository": {

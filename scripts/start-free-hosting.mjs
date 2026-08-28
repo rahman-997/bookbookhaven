@@ -80,7 +80,13 @@ function startSetupServer() {
   const server = http.createServer((request, response) => {
     if (request.url === '/api/health') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-      response.end(JSON.stringify({ status: 'setup-required', frontend: 'ready', database: 'not-configured' }));
+      response.end(JSON.stringify({
+        status: 'setup-required',
+        frontend: 'ready',
+        database: 'not-configured',
+        storageMode: 'unconfigured',
+        durable: false
+      }));
       return;
     }
 
@@ -98,13 +104,17 @@ function startSetupServer() {
 }
 
 async function ensureMongoUri() {
-  if (configuredMongoUri && configuredMongoUri !== 'PENDING_ATLAS') return true;
+  if (configuredMongoUri && configuredMongoUri !== 'PENDING_ATLAS') {
+    process.env.BOOKHAVEN_STORAGE_MODE = 'external';
+    return true;
+  }
 
   try {
     const requireFromBackend = createRequire(new URL('../backend/package.json', import.meta.url));
     const { MongoMemoryServer } = requireFromBackend('mongodb-memory-server');
     embeddedMongo = await MongoMemoryServer.create({ instance: { dbName: 'bookhaven' } });
     process.env.MONGO_URI = embeddedMongo.getUri();
+    process.env.BOOKHAVEN_STORAGE_MODE = 'ephemeral';
     console.warn('[bookhaven] MONGO_URI is not configured; using an ephemeral embedded MongoDB for this portfolio demo');
     return true;
   } catch (error) {

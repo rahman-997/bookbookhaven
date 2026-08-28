@@ -14,6 +14,13 @@ type Stats = {
   recentOrders: Order[];
 };
 
+type Pagination = {
+  page: number;
+  limit: number;
+  total: number;
+  pages: number;
+};
+
 const transitions: Record<Order['status'], Order['status'][]> = {
   pending: ['pending', 'confirmed', 'cancelled'],
   confirmed: ['confirmed', 'shipped', 'cancelled'],
@@ -21,6 +28,7 @@ const transitions: Record<Order['status'], Order['status'][]> = {
   completed: ['completed'],
   cancelled: ['cancelled']
 };
+const orderStatuses: Array<'all' | Order['status']> = ['all', 'pending', 'confirmed', 'shipped', 'completed', 'cancelled'];
 
 export default function AdminPage() {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -29,15 +37,20 @@ export default function AdminPage() {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [ordersLoading, setOrdersLoading] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState('');
   const [editingBook, setEditingBook] = useState<Book | null>(null);
+  const [orderStatus, setOrderStatus] = useState<'all' | Order['status']>('all');
+  const [orderSearchDraft, setOrderSearchDraft] = useState('');
+  const [orderSearch, setOrderSearch] = useState('');
+  const [orderPage, setOrderPage] = useState(1);
+  const [orderMeta, setOrderMeta] = useState<Pagination>({ page: 1, limit: 20, total: 0, pages: 1 });
 
-  const load = useCallback(async () => {
+  const loadDashboard = useCallback(async () => {
     setLoading(true);
     try {
-      const [statsRes, ordersRes, booksRes] = await Promise.all([
+      const [statsRes, booksRes] = await Promise.all([
         fetch('/api/backend/admin/stats', { cache: 'no-store' }),
-        fetch('/api/backend/orders/admin/all', { cache: 'no-store' }),
         fetch('/api/backend/books?limit=100&sort=title', { cache: 'no-store' })
       ]);
 
@@ -46,13 +59,12 @@ export default function AdminPage() {
         return;
       }
 
-      if (!statsRes.ok || !ordersRes.ok || !booksRes.ok) {
+      if (!statsRes.ok || !booksRes.ok) {
         setMessage('Could not load the complete admin dashboard.');
         return;
       }
 
       setStats((await statsRes.json()).data);
-      setOrders((await ordersRes.json()).data ?? []);
       setBooks((await booksRes.json()).data ?? []);
     } catch {
       setMessage('Could not reach the BookHaven API.');
@@ -61,9 +73,40 @@ export default function AdminPage() {
     }
   }, []);
 
+  const loadOrders = useCallback(async () => {
+    setOrdersLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(orderPage), limit: '20' });
+      if (orderStatus !== 'all') params.set('status', orderStatus);
+      if (orderSearch) params.set('search', orderSearch);
+
+      const response = await fetch(`/api/backend/orders/admin/all?${params.toString()}`, { cache: 'no-store' });
+      if (response.status === 401 || response.status === 403) {
+        setMessage('Admin sign-in required.');
+        return;
+      }
+      if (!response.ok) {
+        setMessage('Could not load the order queue.');
+        return;
+      }
+
+      const payload = await response.json();
+      setOrders(payload.data ?? []);
+      setOrderMeta(payload.meta ?? { page: orderPage, limit: 20, total: (payload.data ?? []).length, pages: 1 });
+    } catch {
+      setMessage('Could not reach the BookHaven API.');
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, [orderPage, orderSearch, orderStatus]);
+
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadDashboard();
+  }, [loadDashboard]);
+
+  useEffect(() => {
+    void loadOrders();
+  }, [loadOrders]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -107,7 +150,7 @@ export default function AdminPage() {
       setMessage(editing ? 'Book changes published to the live catalog.' : 'Book created and added to the live catalog.');
       setEditingBook(null);
       event.currentTarget.reset();
-      await load();
+      await loadDashboard();
     } finally {
       setBusy(false);
     }
@@ -120,15 +163,16 @@ export default function AdminPage() {
     }
 
     const response = await fetch(`/api/backend/books/${id}`, { method: 'DELETE' });
+    const payload = await response.json().catch(() => null);
     if (!response.ok) {
-      setMessage('Could not delete book.');
+      setMessage(payload?.error?.message ?? 'Could not delete book.');
       return;
     }
 
     setMessage('Book and dependent reader data removed.');
     setConfirmDelete('');
     if (editingBook?._id === id) setEditingBook(null);
-    await load();
+    await loadDashboard();
   }
 
   async function updateOrder(id: string, status: Order['status']) {
@@ -144,7 +188,19 @@ export default function AdminPage() {
     }
 
     setMessage(`Order moved to ${status}.`);
-    await load();
+    await Promise.all([loadOrders(), loadDashboard()]);
+  }
+
+  function submitOrderSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setOrderSearch(orderSearchDraft.trim());
+    setOrderPage(1);
+  }
+
+  function clearOrderSearch() {
+    setOrderSearchDraft('');
+    setOrderSearch('');
+    setOrderPage(1);
   }
 
   const metrics = stats
@@ -158,6 +214,9 @@ export default function AdminPage() {
       ]
     : [];
 
+  const firstOrder = orderMeta.total === 0 ? 0 : (orderMeta.page - 1) * orderMeta.limit + 1;
+  const lastOrder = Math.min(orderMeta.page * orderMeta.limit, orderMeta.total);
+
   return (
     <main className="page-shell pb-28 pt-10 md:pb-20 md:pt-14">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -170,7 +229,7 @@ export default function AdminPage() {
       </div>
 
       {message ? (
-        <div aria-live="polite" className={`notice mt-6 ${message.includes('required') || message.includes('Could') ? 'notice--error' : 'notice--success'}`}>
+        <div aria-live="polite" className={`notice mt-6 ${message.includes('required') || message.includes('Could') || message.includes('cannot') ? 'notice--error' : 'notice--success'}`}>
           {message}
         </div>
       ) : null}
@@ -253,14 +312,50 @@ export default function AdminPage() {
           </div>
 
           <div>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-end justify-between gap-3">
               <div><p className="section-kicker">Fulfillment</p><h2 className="mt-1 text-2xl font-black">Order queue</h2></div>
-              <span className="text-xs text-slate-600">{orders.length} orders</span>
+              <span className="text-xs text-slate-600">
+                {ordersLoading ? 'Refreshing…' : orderMeta.total > 0 ? `${firstOrder}–${lastOrder} of ${orderMeta.total}` : '0 orders'}
+              </span>
             </div>
-            <div className="glass mt-4 overflow-hidden rounded-[1.4rem]">
+
+            <div className="glass mt-4 rounded-[1.4rem] p-4">
+              <div className="grid gap-3 lg:grid-cols-[1fr_180px_auto]">
+                <form onSubmit={submitOrderSearch} className="flex gap-2 lg:contents">
+                  <input
+                    value={orderSearchDraft}
+                    onChange={(event) => setOrderSearchDraft(event.target.value)}
+                    maxLength={120}
+                    placeholder="Search order ID, reader, email, address or book"
+                    aria-label="Search orders"
+                    className="admin-input min-w-0 flex-1"
+                  />
+                  <select
+                    value={orderStatus}
+                    onChange={(event) => {
+                      setOrderStatus(event.target.value as 'all' | Order['status']);
+                      setOrderPage(1);
+                    }}
+                    aria-label="Filter orders by status"
+                    className="field !min-h-11 capitalize"
+                  >
+                    {orderStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+                  </select>
+                  <button type="submit" className="button button--ghost !min-h-11">Search</button>
+                </form>
+              </div>
+              {orderSearch ? (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                  <span>Searching for “{orderSearch}”</span>
+                  <button type="button" onClick={clearOrderSearch} className="font-bold text-violet-300 hover:text-violet-200">Clear search</button>
+                </div>
+              ) : null}
+            </div>
+
+            <div className={`glass mt-3 overflow-hidden rounded-[1.4rem] ${ordersLoading ? 'opacity-70' : ''}`} aria-busy={ordersLoading}>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[760px] text-left text-sm">
-                  <thead className="border-b border-white/10 text-[10px] uppercase tracking-[.13em] text-slate-600"><tr><th className="p-4">Order</th><th className="p-4">Reader</th><th className="p-4">Items</th><th className="p-4">Total</th><th className="p-4">Next state</th></tr></thead>
+                <table className="w-full min-w-[820px] text-left text-sm">
+                  <thead className="border-b border-white/10 text-[10px] uppercase tracking-[.13em] text-slate-600"><tr><th className="p-4">Order</th><th className="p-4">Reader</th><th className="p-4">Items</th><th className="p-4">Total</th><th className="p-4">Status</th><th className="p-4">Next state</th></tr></thead>
                   <tbody>
                     {orders.map((order) => (
                       <tr key={order._id} className="border-b border-white/5 last:border-0">
@@ -268,14 +363,23 @@ export default function AdminPage() {
                         <td className="p-4"><strong className="block">{order.user?.name ?? 'Customer'}</strong><span className="text-xs text-slate-600">{order.user?.email}</span></td>
                         <td className="p-4 text-slate-400">{order.items.reduce((count, item) => count + item.quantity, 0)}</td>
                         <td className="p-4 font-black">${order.subtotal.toFixed(2)}</td>
+                        <td className="p-4"><span className="chip capitalize">{order.status}</span></td>
                         <td className="p-4"><select value={order.status} onChange={(event) => void updateOrder(order._id, event.target.value as Order['status'])} className="field !min-h-10 !py-1.5">{transitions[order.status].map((status) => <option key={status}>{status}</option>)}</select></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              {orders.length === 0 ? <p className="p-6 text-sm text-slate-500">No orders yet.</p> : null}
+              {!ordersLoading && orders.length === 0 ? <p className="p-6 text-sm text-slate-500">No orders match the current filters.</p> : null}
             </div>
+
+            {orderMeta.pages > 1 ? (
+              <nav className="mt-4 flex items-center justify-between gap-3" aria-label="Admin order pages">
+                <button type="button" disabled={orderPage <= 1 || ordersLoading} onClick={() => setOrderPage((current) => Math.max(1, current - 1))} className="button button--ghost disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
+                <span className="text-xs font-bold text-slate-500">Page {orderMeta.page} of {orderMeta.pages}</span>
+                <button type="button" disabled={orderPage >= orderMeta.pages || ordersLoading} onClick={() => setOrderPage((current) => Math.min(orderMeta.pages, current + 1))} className="button button--ghost disabled:cursor-not-allowed disabled:opacity-40">Next</button>
+              </nav>
+            ) : null}
           </div>
         </section>
       </div>

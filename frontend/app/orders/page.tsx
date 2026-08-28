@@ -1,12 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import EmptyState from '@/app/components/EmptyState';
 import { CheckIcon, PackageIcon } from '@/app/components/Icons';
 import type { Order } from '@/lib/types';
 
 const steps: Order['status'][] = ['pending', 'confirmed', 'shipped', 'completed'];
+const statuses: Array<'all' | Order['status']> = ['all', 'pending', 'confirmed', 'shipped', 'completed', 'cancelled'];
 const statusTone: Record<Order['status'], string> = {
   pending: 'text-amber-200',
   confirmed: 'text-sky-300',
@@ -15,30 +16,55 @@ const statusTone: Record<Order['status'], string> = {
   cancelled: 'text-rose-300'
 };
 
+type Pagination = {
+  page: number;
+  limit: number;
+  total: number;
+  pages: number;
+};
+
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
-  const [message, setMessage] = useState('Loading your order journal…');
+  const [status, setStatus] = useState<'all' | Order['status']>('all');
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState<Pagination>({ page: 1, limit: 8, total: 0, pages: 1 });
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const loadOrders = useCallback(async () => {
+    setLoading(true);
+    setMessage('');
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: '8' });
+      if (status !== 'all') params.set('status', status);
+
+      const response = await fetch(`/api/backend/orders?${params.toString()}`, { cache: 'no-store' });
+      if (response.status === 401) {
+        setOrders([]);
+        setMessage('Sign in to view your orders.');
+        return;
+      }
+      if (!response.ok) {
+        setMessage('Could not load orders.');
+        return;
+      }
+
+      const payload = await response.json();
+      setOrders(payload.data ?? []);
+      setMeta(payload.meta ?? { page, limit: 8, total: (payload.data ?? []).length, pages: 1 });
+    } catch {
+      setMessage('Could not reach the BookHaven API.');
+    } finally {
+      setLoading(false);
+    }
+  }, [page, status]);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const response = await fetch('/api/backend/orders', { cache: 'no-store' });
-        if (response.status === 401) {
-          setMessage('Sign in to view your orders.');
-          return;
-        }
-        if (!response.ok) {
-          setMessage('Could not load orders.');
-          return;
-        }
-        const payload = await response.json();
-        setOrders(payload.data ?? []);
-        setMessage('');
-      } catch {
-        setMessage('Could not reach the BookHaven API.');
-      }
-    })();
-  }, []);
+    void loadOrders();
+  }, [loadOrders]);
+
+  const firstItem = meta.total === 0 ? 0 : (meta.page - 1) * meta.limit + 1;
+  const lastItem = Math.min(meta.page * meta.limit, meta.total);
 
   return (
     <main className="page-shell pb-28 pt-12 md:pb-20 md:pt-16">
@@ -51,14 +77,36 @@ export default function OrdersPage() {
         <Link href="/" className="button button--ghost">Find another book</Link>
       </div>
 
+      <section className="glass mt-8 flex flex-wrap items-center justify-between gap-3 rounded-2xl p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <label htmlFor="order-status" className="text-xs font-black uppercase tracking-[.12em] text-slate-600">Status</label>
+          <select
+            id="order-status"
+            value={status}
+            onChange={(event) => {
+              setStatus(event.target.value as 'all' | Order['status']);
+              setPage(1);
+            }}
+            className="field !min-h-10 !py-1.5 capitalize"
+          >
+            {statuses.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </div>
+        <p className="text-xs text-slate-500">
+          {loading ? 'Refreshing orders…' : meta.total > 0 ? `Showing ${firstItem}–${lastItem} of ${meta.total}` : 'No matching orders'}
+        </p>
+      </section>
+
       {message ? (
-        <div className="notice mt-8" role="status">
+        <div className="notice mt-6" role="status">
           {message}{' '}
           {message.startsWith('Sign') ? <Link href="/login" className="font-bold text-amber-200 underline">Sign in</Link> : null}
         </div>
       ) : null}
 
-      <div className="mt-9 space-y-5">
+      {loading && orders.length === 0 ? <div className="surface mt-8 h-28 animate-pulse rounded-2xl" aria-label="Loading orders" /> : null}
+
+      <div className={`mt-9 space-y-5 ${loading ? 'opacity-70' : ''}`} aria-busy={loading}>
         {orders.map((order) => {
           const current = steps.indexOf(order.status);
           return (
@@ -112,10 +160,22 @@ export default function OrdersPage() {
         })}
       </div>
 
-      {!message && orders.length === 0 ? (
+      {!message && !loading && orders.length === 0 ? (
         <div className="mt-10">
-          <EmptyState title="No orders yet" description="When a title becomes yours, its journey will appear here." icon={<PackageIcon size={27} />} />
+          <EmptyState
+            title={status === 'all' ? 'No orders yet' : `No ${status} orders`}
+            description={status === 'all' ? 'When a title becomes yours, its journey will appear here.' : 'Try another status or browse the catalog for your next read.'}
+            icon={<PackageIcon size={27} />}
+          />
         </div>
+      ) : null}
+
+      {!message && meta.pages > 1 ? (
+        <nav className="mt-8 flex items-center justify-between gap-3" aria-label="Order pages">
+          <button type="button" disabled={page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))} className="button button--ghost disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
+          <span className="text-xs font-bold text-slate-500">Page {meta.page} of {meta.pages}</span>
+          <button type="button" disabled={page >= meta.pages || loading} onClick={() => setPage((current) => Math.min(meta.pages, current + 1))} className="button button--ghost disabled:cursor-not-allowed disabled:opacity-40">Next</button>
+        </nav>
       ) : null}
     </main>
   );

@@ -8,11 +8,17 @@ const securityHeaders = [
   { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' }
 ];
 
+const noIndexHeaders = [{ key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' }];
+const privateRoutes = ['/account/:path*', '/admin/:path*', '/cart/:path*', '/checkout/:path*', '/orders/:path*', '/wishlist/:path*', '/login/:path*', '/register/:path*'];
+
 const nextConfig: NextConfig = {
   output: 'standalone',
   turbopack: { root: process.cwd() },
   async headers() {
-    return [{ source: '/(.*)', headers: securityHeaders }];
+    return [
+      { source: '/(.*)', headers: securityHeaders },
+      ...privateRoutes.map((source) => ({ source, headers: noIndexHeaders }))
+    ];
   }
 };
 

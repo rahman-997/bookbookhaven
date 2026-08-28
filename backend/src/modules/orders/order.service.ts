@@ -1,4 +1,6 @@
+import mongoose from 'mongoose';
 import { HttpError } from '../../errors/http-error';
+import { User } from '../auth/user.model';
 import { Book } from '../books/book.model';
 import { Cart } from '../cart/cart.model';
 import { Order, type OrderStatus, type PaymentMethod } from './order.model';
@@ -12,8 +14,27 @@ const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
 };
 const CHECKOUT_LOCK_MS = 5 * 60_000;
 
-export async function listForUser(userId: string) {
-  return Order.find({ user: userId }).sort({ createdAt: -1 }).lean();
+type ListInput = { page: number; limit: number; status?: OrderStatus };
+type AdminListInput = ListInput & { search?: string };
+
+function pagination(page: number, limit: number, total: number) {
+  return { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) };
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export async function listForUser(userId: string, input: ListInput) {
+  const filter: Record<string, unknown> = { user: userId };
+  if (input.status) filter.status = input.status;
+
+  const [items, total] = await Promise.all([
+    Order.find(filter).sort({ createdAt: -1 }).skip((input.page - 1) * input.limit).limit(input.limit).lean(),
+    Order.countDocuments(filter)
+  ]);
+
+  return { items, pagination: pagination(input.page, input.limit, total) };
 }
 
 export async function getForUser(userId: string, id: string) {
@@ -22,8 +43,33 @@ export async function getForUser(userId: string, id: string) {
   return order;
 }
 
-export async function listAll() {
-  return Order.find().populate('user', 'name email').sort({ createdAt: -1 }).limit(200).lean();
+export async function listAll(input: AdminListInput) {
+  const filter: Record<string, unknown> = {};
+  if (input.status) filter.status = input.status;
+
+  if (input.search) {
+    const regex = new RegExp(escapeRegex(input.search), 'i');
+    const users = await User.find({ $or: [{ name: regex }, { email: regex }] }).select('_id').limit(100).lean();
+    const clauses: Record<string, unknown>[] = [
+      { shippingAddress: regex },
+      { 'items.title': regex },
+      { user: { $in: users.map((user) => user._id) } }
+    ];
+    if (mongoose.isValidObjectId(input.search)) clauses.push({ _id: input.search });
+    filter.$or = clauses;
+  }
+
+  const [items, total] = await Promise.all([
+    Order.find(filter)
+      .populate('user', 'name email')
+      .sort({ createdAt: -1 })
+      .skip((input.page - 1) * input.limit)
+      .limit(input.limit)
+      .lean(),
+    Order.countDocuments(filter)
+  ]);
+
+  return { items, pagination: pagination(input.page, input.limit, total) };
 }
 
 export async function create(userId: string, shippingAddress: string, paymentMethod: PaymentMethod) {
@@ -75,7 +121,10 @@ export async function create(userId: string, shippingAddress: string, paymentMet
   } catch (error) {
     if (orderId) await Order.deleteOne({ _id: orderId }).catch(() => undefined);
     await Promise.allSettled(decremented.map((item) => Book.updateOne({ _id: item.id }, { $inc: { stock: item.quantity } })));
-    cart.items = originalCartItems;
+
+    const survivingBooks = await Book.find({ _id: { $in: bookIds } }).select('_id').lean().catch(() => []);
+    const survivingIds = new Set(survivingBooks.map((book) => String(book._id)));
+    cart.items = originalCartItems.filter((item) => survivingIds.has(String(item.book)));
     cart.checkoutLockedAt = null;
     await cart.save().catch(() => undefined);
     throw error;

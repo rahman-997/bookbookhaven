@@ -2,7 +2,7 @@ name: bookhaven
 
 services:
   db:
-    image: mongo:8.0@sha256:02a0cc7939f5ed38f30f9bc714ef5f682d49baf9350c54acf302ce833087fe8a
+    image: mongo:8.2@sha256:e0ce8c35124d4a9f9785532d1f268f39e9728ffa1cb38f46fa482436424c4bd3
     restart: unless-stopped
     volumes:
       - mongo_data:/data/db

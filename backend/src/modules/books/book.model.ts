@@ -22,7 +22,7 @@ const bookSchema = new Schema<BookDocument>(
     author: { type: String, required: true, trim: true, maxlength: 160, index: true },
     description: { type: String, default: '', maxlength: 5000 },
     coverUrl: { type: String, trim: true },
-    isbn: { type: String, trim: true, unique: true, sparse: true },
+    isbn: { type: String, trim: true, uppercase: true, unique: true, sparse: true, set: (value?: string) => value?.replace(/[\s-]/g, '').toUpperCase() },
     price: { type: Number, required: true, min: 0, index: true },
     stock: { type: Number, required: true, default: 0, min: 0 },
     categories: [{ type: String, trim: true, lowercase: true }],
@@ -32,5 +32,6 @@ const bookSchema = new Schema<BookDocument>(
 );
 
 bookSchema.index({ title: 'text', author: 'text', description: 'text' });
+bookSchema.index({ categories: 1, featured: 1, createdAt: -1 });
 
 export const Book = model<BookDocument>('Book', bookSchema);

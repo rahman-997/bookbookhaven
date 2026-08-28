@@ -26,6 +26,12 @@ jobs:
       - name: Install frontend
         working-directory: frontend
         run: npm install --include=dev --no-audit --no-fund
+      - name: Audit backend runtime dependencies
+        working-directory: backend
+        run: npm audit --omit=dev --audit-level=high
+      - name: Audit frontend runtime dependencies
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
       - name: Typecheck backend
         working-directory: backend
         run: npm run typecheck

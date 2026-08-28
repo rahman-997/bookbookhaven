@@ -6,7 +6,7 @@
 
 **BookHaven is a production-oriented full-stack bookstore built around real commerce workflows, concurrency-safe inventory, private browser sessions, scalable catalog/fulfillment operations, and a polished portfolio-grade storefront.**
 
-**Live:** [bookbookhaven-free.onrender.com](https://bookbookhaven-free.onrender.com) · **Case study:** [Portfolio](https://abdulrahman-hajar-dev.netlify.app/work/bookhaven/) · **Engineer:** [Abdulrahman Hajar](https://github.com/rahman-997)
+**Live:** [bookbookhaven-free.onrender.com](https://bookbookhaven-free.onrender.com) · **Case study:** [Portfolio](https://abdulrahman-hajar-portfolio.onrender.com/work/bookhaven/) · **Engineer:** [Abdulrahman Hajar](https://github.com/rahman-997)
 
 > Use MongoDB Atlas M0 through `MONGO_URI` for durable production/demo data. The free hosting launcher can also use a disposable embedded MongoDB for portfolio previews; that fallback can reset after sleep, restart, or redeploy.
 

@@ -20,8 +20,8 @@
 | Auth | JWT · bcrypt · HttpOnly BFF session · customer/admin RBAC |
 | Commerce | Cart · wishlist · paginated reviews · checkout · orders · inventory |
 | Operations | Paginated/searchable admin catalog · fulfillment queue · metrics · low-stock visibility |
-| Security | Helmet · explicit credentialed CORS · rate limits · body limits · same-origin BFF guard · production secret checks |
-| Verification | Jest/Supertest · replica-set transaction test · typecheck · production builds · GitHub Actions |
+| Security | Helmet · CSP/HSTS · explicit credentialed CORS · rate limits · body limits · same-origin BFF guard · production secret checks |
+| Verification | npm lockfiles + `npm ci` · runtime dependency audits · Jest/Supertest · replica-set transaction test · typecheck · production builds · GitHub Actions |
 | SEO | Dynamic book metadata · canonical URLs · OpenGraph/Twitter · JSON-LD · paginated sitemap |
 | Deployment | Docker Compose · Render Free standalone Next.js runtime · MongoDB Atlas M0 |
 
@@ -153,13 +153,15 @@ The authoritative REST contract is [`docs/openapi.yaml`](./docs/openapi.yaml) us
 - JWT authentication and API-side RBAC
 - HttpOnly, Secure-in-production, SameSite session cookie at the Next.js BFF boundary
 - Same-origin mutation protection
-- Helmet headers
+- Helmet headers plus production CSP and HSTS at the public Next.js boundary
+- `X-Powered-By` disabled and defensive browser headers enabled
 - Explicit credentialed CORS configuration
 - Rate limiting, including tighter auth limits
 - Request-body size limits
 - Zod body/query/path validation
 - Safe centralized error responses with request IDs
 - Structured access logging
+- CI and Render builds fail on high/critical runtime dependency audit findings
 
 ## Local development
 
@@ -197,7 +199,7 @@ Backend:
 
 ```bash
 cd backend
-npm install
+npm ci
 cp .env.example .env
 npm run dev
 ```
@@ -206,19 +208,21 @@ Frontend:
 
 ```bash
 cd frontend
-npm install
+npm ci
 INTERNAL_API_URL=http://localhost:3001/api/v1 npm run dev
 ```
 
+The committed npm lockfiles are the dependency source of truth for CI, Docker and production builds. Update them intentionally whenever package manifests change.
+
 ## Verification
 
-Standard project verification:
+Full project verification, including production dependency audits:
 
 ```bash
-npm run typecheck
-npm test
-npm run build
+npm run verify
 ```
+
+Individual checks remain available through `npm run typecheck`, `npm test`, `npm run build`, and `npm run audit:prod`.
 
 Production/free-hosting gate:
 
@@ -226,7 +230,7 @@ Production/free-hosting gate:
 npm run build:free
 ```
 
-`build:free` performs backend install → typecheck → tests → build → frontend install → typecheck → build. Any failure blocks deployment. GitHub Actions performs equivalent checks for pushes and pull requests and verifies the standalone frontend artifact.
+`build:free` performs deterministic backend `npm ci` → runtime dependency audit → typecheck → tests → build → deterministic frontend `npm ci` → runtime dependency audit → typecheck → build. Any failure blocks deployment. GitHub Actions performs the same checks for pushes and pull requests, caches npm downloads by lockfile hash, and verifies the standalone frontend artifact.
 
 ## Zero-cost deployment
 

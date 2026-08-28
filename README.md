@@ -6,7 +6,7 @@
 
 **A production-oriented full-stack bookstore built around real commerce workflows, not only catalog CRUD.** BookHaven combines a Next.js 16 storefront with an Express 5 API, TypeScript, MongoDB/Mongoose, Zod validation, JWT authentication, role-based authorization, checkout/order workflows, inventory handling, operational admin tools, and automated API verification.
 
-**Live:** [bookbookhaven-free.onrender.com](https://bookbookhaven-free.onrender.com) · **Case study:** [Portfolio](https://abdulrahman-hajjar-dev.netlify.app/work/bookhaven/) · **Engineer:** [Abdulrahman Hajar](https://github.com/rahman-997)
+**Live:** [bookbookhaven-free.onrender.com](https://bookbookhaven-free.onrender.com) · **Case study:** [Portfolio](https://abdulrahman-hajar-dev.netlify.app/work/bookhaven/) · **Engineer:** [Abdulrahman Hajar](https://github.com/rahman-997)
 
 > The zero-cost portfolio deployment can use an embedded ephemeral MongoDB when Atlas is not configured. Demo data can reset after a restart, and the free Render service may require a short wake-up.
 

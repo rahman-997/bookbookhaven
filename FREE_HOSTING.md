@@ -5,9 +5,10 @@ BookHaven is designed to run with no mandatory monthly hosting bill for a demo, 
 ## Free stack
 
 - **Git + source control:** GitHub Free
-- **Verification:** Render Free build pipeline and GitHub Actions when enabled
+- **Verification:** GitHub Actions and the Render production build gate
 - **Web:** one Render Free Web Service
-- **Database:** MongoDB Atlas M0 Free
+- **Durable database:** MongoDB Atlas M0 Free
+- **Demo fallback:** embedded ephemeral MongoDB when Atlas is not configured
 - **TLS + subdomain:** Render-managed `*.onrender.com`
 - **Local development:** Docker Compose + MongoDB container
 
@@ -27,22 +28,32 @@ https://github.com/rahman-997/bookbookhaven
 
 ## Why one Render service?
 
-`npm run start:free` starts two processes inside one free web service when MongoDB is configured:
+`npm run start:free` starts two application processes inside one free web service:
 
 1. Next.js listens on public `$PORT`.
 2. Express listens on `127.0.0.1:3001` only.
 3. Next.js calls Express through `INTERNAL_API_URL=http://127.0.0.1:3001/api/v1`.
-4. Express connects to MongoDB Atlas through `MONGO_URI`.
+4. Express connects to `MONGO_URI` when a durable MongoDB deployment is configured.
 
 The browser never needs the internal Express hostname or JWT. Authentication is translated by the Next.js BFF from an HttpOnly cookie to a Bearer token.
 
-## Safe setup mode
+## Database modes
 
-If `MONGO_URI` is missing or equals `PENDING_ATLAS`, `npm run start:free` deliberately starts a small setup page instead of crashing. `/api/health` reports `setup-required` while the database is unconfigured.
+### Durable mode — recommended
 
-After an Atlas M0 URI is added to Render, redeploy the same service. The normal Next.js + Express runtime starts automatically.
+Set `MONGO_URI` to a MongoDB Atlas M0 connection string. Cart, wishlist, reviews, users, orders, inventory, and admin data then survive Render restarts and redeployments.
 
-## Required secrets
+This is the intended production/portfolio configuration.
+
+### Ephemeral demo fallback
+
+If `MONGO_URI` is missing or equals `PENDING_ATLAS`, the current combined hosting launcher attempts to start `mongodb-memory-server` so the public portfolio demo remains usable without a paid database or external secret.
+
+This mode is deliberately **not durable**. Data can reset when the Render instance restarts, sleeps, or redeploys. It is suitable only for a disposable demo.
+
+If the embedded MongoDB process cannot start, the launcher falls back to a small setup page. `/api/health` then reports `setup-required` instead of pretending that persistent storage is available.
+
+## Required secrets for durable operation
 
 Never commit these values:
 
@@ -62,7 +73,7 @@ BACKEND_PORT=3001
 CORS_ORIGIN=https://bookbookhaven-free.onrender.com
 ```
 
-Keep `AUTO_SEED=false` until Atlas and the intended admin credentials are configured. Then it can be enabled for the idempotent demo seed.
+`AUTO_SEED=true` is useful for the disposable portfolio demo because it restores idempotent sample data after an ephemeral reset. For a real persistent catalog, choose the seed policy intentionally and avoid using demo credentials.
 
 ## MongoDB Atlas M0
 
@@ -73,6 +84,8 @@ Example URI shape:
 ```text
 mongodb+srv://<user>:<password>@<cluster-host>/bookhaven?retryWrites=true&w=majority
 ```
+
+After `MONGO_URI` is added to Render, the same code automatically uses Atlas on the next deploy/restart; Render is not part of the data model or business logic.
 
 ## Quality gate
 
@@ -118,4 +131,4 @@ Health:
 
 ## Free-tier tradeoffs
 
-Free web services may sleep while idle and cold-start on the next request. Atlas M0 has storage and performance limits. This profile is suitable for demos, learning, portfolios, prototypes, and early/small stores rather than an SLA-backed high-traffic production shop.
+Free web services may sleep while idle and cold-start on the next request. Atlas M0 has storage and performance limits. The embedded fallback loses data on restart. This profile is suitable for demos, learning, portfolios, prototypes, and early/small stores rather than an SLA-backed high-traffic production shop.

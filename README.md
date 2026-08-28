@@ -8,7 +8,7 @@
 
 **Live:** [bookbookhaven-free.onrender.com](https://bookbookhaven-free.onrender.com) · **Case study:** [Portfolio](https://abdulrahman-hajar-dev.netlify.app/work/bookhaven/) · **Engineer:** [Abdulrahman Hajar](https://github.com/rahman-997)
 
-> The zero-cost portfolio deployment can use an embedded ephemeral MongoDB when Atlas is not configured. Demo data can reset after a restart, and the free Render service may require a short wake-up.
+> The zero-cost portfolio deployment can use an embedded ephemeral MongoDB when Atlas is not configured. Demo data can reset after a restart. Configure MongoDB Atlas M0 through `MONGO_URI` for durable users, carts, reviews, inventory, and orders.
 
 ---
 
@@ -18,12 +18,12 @@
 | --- | --- |
 | Frontend | Next.js 16 · React 19 · TypeScript |
 | Backend | Express 5 · TypeScript · Zod 4 |
-| Data | MongoDB · Mongoose · indexes |
-| Auth | JWT + customer/admin RBAC |
-| Commerce | Cart · wishlist · reviews · checkout · orders · inventory |
+| Data | MongoDB · Mongoose · indexes · optimistic concurrency |
+| Auth | JWT + HttpOnly BFF session + customer/admin RBAC |
+| Commerce | Cart · wishlist · reviews · checkout · order detail · inventory |
 | Operations | Admin dashboard · order queue · low-stock visibility |
-| Security | Helmet · CORS · request limits · rate limiting · production secret checks |
-| Verification | Typecheck · Jest/Supertest · frontend/backend builds · GitHub Actions CI |
+| Security | Helmet · CORS · request limits · rate limiting · same-origin BFF guard · production secret checks |
+| Verification | Typecheck · Jest/Supertest · concurrency/integrity tests · frontend/backend builds · GitHub Actions CI |
 | Deployment | Single Render Free service + MongoDB Atlas M0 or embedded demo DB |
 
 ## System architecture
@@ -57,33 +57,37 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the deeper design.
 ### Storefront
 
 - Responsive catalog and editorial discovery
-- Search, category filtering, and sorting
+- Search, category filtering, price filtering, and sorting
 - SEO-aware book detail pages
 - Stock visibility
 - Persistent cart
 - Persistent wishlist
 - Reader ratings and reviews
 - Checkout without requiring a paid payment provider
-- Customer order history
+- Customer order history and owned order-detail pages
 
 ### Admin operations
 
-- Admin-only book creation and management
+- Admin-only book creation, editing, deletion, stock, and featured management
 - Book, user, order, and review counts
 - Low-stock metric
 - Aggregate order value
-- Order queue and status transitions
+- Order queue and guarded status transitions
 - Inventory restoration after valid cancellation
+- Protection against deleting inventory still required by active orders
 
 ## Commerce reliability
 
-The project includes several safeguards so commerce behavior is not just UI state:
+The project includes safeguards so commerce behavior is not only UI state:
 
-- Checkout concurrency lock prevents duplicate orders from the same cart.
+- Cart mutations use optimistic concurrency and bounded retries so concurrent requests do not silently overwrite one another.
+- Checkout acquires a versioned cart lock, preventing stale cart writes from overwriting an active checkout.
+- Duplicate checkout requests cannot create duplicate orders from the same cart.
 - Failed checkout compensates order, inventory, cart, and lock state.
 - Atomic order-status transitions prevent duplicate cancellation restocks.
-- Historical orders preserve title/price snapshots even when catalog data changes.
-- Deleting a book cleans dependent cart, wishlist, and review references.
+- Books referenced by `pending` or `confirmed` orders cannot be deleted before fulfillment/cancellation is complete.
+- Historical orders preserve title/price snapshots even after later catalog changes.
+- Deleting an eligible book cleans dependent cart, wishlist, and review references.
 
 ## API design
 
@@ -128,6 +132,7 @@ PUT    /api/v1/reviews/book/:bookId
 DELETE /api/v1/reviews/:id
 
 GET    /api/v1/orders
+GET    /api/v1/orders/:id
 POST   /api/v1/orders
 GET    /api/v1/orders/admin/all
 PATCH  /api/v1/orders/admin/:id/status
@@ -142,14 +147,14 @@ GET    /api/v1/health
 - TypeScript strict mode
 - Zod request validation
 - Centralized error handling
-- Mongoose indexes and persistence models
+- Mongoose indexes, persistence models, and optimistic cart versioning
 - JWT authentication and role authorization
 - Request IDs and structured access logging
 - Helmet and explicit CORS handling
 - Request-size limits and rate limiting
 - Health/readiness route
 - OpenAPI 3.1 contract
-- Jest/Supertest API tests
+- Jest/Supertest API tests including concurrency and ownership cases
 - Safer image and backend proxy behavior
 
 ## UX hardening
@@ -161,7 +166,7 @@ The “Midnight Library” interface includes:
 - loading, empty, and error states
 - accessible focus handling
 - reduced-motion support
-- redesigned cart, checkout, account, and admin flows
+- redesigned cart, checkout, account, orders, order detail, and admin flows
 
 ## Local development
 
@@ -255,7 +260,7 @@ The default checkout supports `cash_on_delivery` and `manual` settlement, so no 
 
 | Variable | Purpose |
 | --- | --- |
-| `MONGO_URI` | MongoDB connection string |
+| `MONGO_URI` | Durable MongoDB connection string; absent means disposable embedded demo mode |
 | `JWT_SECRET` | JWT signing secret |
 | `JWT_EXPIRES_IN` | Token lifetime |
 | `CORS_ORIGIN` | Allowed frontend origin(s) |
@@ -269,9 +274,11 @@ The default checkout supports `cash_on_delivery` and `manual` settlement, so no 
 ## Engineering evidence
 
 - Real authentication and authorization boundaries
-- Persistent commerce state
+- Persistent commerce state when backed by Atlas/local MongoDB
+- Optimistic cart concurrency control
 - Concurrency-aware checkout behavior
 - Inventory compensation and cancellation guards
+- Active-order inventory deletion protection
 - Admin operational workflows
 - Centralized validation and errors
 - OpenAPI contract

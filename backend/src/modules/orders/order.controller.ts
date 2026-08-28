@@ -16,7 +16,8 @@ export async function create(req: AuthRequest, res: Response) {
 }
 
 export async function listAll(_req: AuthRequest, res: Response) {
-  res.json({ success: true, data: await service.listAll() });
+  const result = await service.listAll(res.locals.validatedQuery);
+  res.json({ success: true, data: result.items, meta: result.pagination });
 }
 
 export async function updateStatus(req: AuthRequest<{ id: string }>, res: Response) {

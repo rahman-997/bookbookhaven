@@ -1,9 +1,10 @@
-import mongoose, { type ClientSession } from 'mongoose';
+import mongoose, { type ClientSession, type FilterQuery } from 'mongoose';
 import { mongoTransactionsAvailable } from '../../database/transactions';
 import { HttpError } from '../../errors/http-error';
+import { User } from '../auth/user.model';
 import { Book } from '../books/book.model';
 import { Cart } from '../cart/cart.model';
-import { Order, type OrderStatus, type PaymentMethod } from './order.model';
+import { Order, type OrderDocument, type OrderStatus, type PaymentMethod } from './order.model';
 
 const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
   pending: ['confirmed', 'cancelled'],
@@ -13,6 +14,10 @@ const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
   cancelled: []
 };
 const CHECKOUT_LOCK_MS = 5 * 60_000;
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 export async function listForUser(userId: string) {
   return Order.find({ user: userId }).sort({ createdAt: -1 }).lean();
@@ -24,8 +29,42 @@ export async function getForUser(userId: string, id: string) {
   return order;
 }
 
-export async function listAll() {
-  return Order.find().populate('user', 'name email').sort({ createdAt: -1 }).limit(200).lean();
+export async function listAll(input: { page: number; limit: number; status?: OrderStatus; search?: string }) {
+  const filter: FilterQuery<OrderDocument> = {};
+  if (input.status) filter.status = input.status;
+
+  if (input.search) {
+    const search = input.search.trim();
+    const regex = new RegExp(escapeRegex(search), 'i');
+    const users = await User.find({ $or: [{ name: regex }, { email: regex }] }).select('_id').limit(100).lean();
+    const or: FilterQuery<OrderDocument>[] = [
+      { shippingAddress: regex },
+      { 'items.title': regex }
+    ];
+    if (mongoose.isValidObjectId(search)) or.push({ _id: search });
+    if (users.length) or.push({ user: { $in: users.map((user) => user._id) } });
+    filter.$or = or;
+  }
+
+  const [items, total] = await Promise.all([
+    Order.find(filter)
+      .populate('user', 'name email')
+      .sort({ createdAt: -1 })
+      .skip((input.page - 1) * input.limit)
+      .limit(input.limit)
+      .lean(),
+    Order.countDocuments(filter)
+  ]);
+
+  return {
+    items,
+    pagination: {
+      page: input.page,
+      limit: input.limit,
+      total,
+      pages: Math.max(1, Math.ceil(total / input.limit))
+    }
+  };
 }
 
 async function acquireCheckoutCart(userId: string, session?: ClientSession) {
@@ -132,9 +171,7 @@ async function createWithCompensation(userId: string, shippingAddress: string, p
 }
 
 export async function create(userId: string, shippingAddress: string, paymentMethod: PaymentMethod) {
-  if (await mongoTransactionsAvailable()) {
-    return createWithTransaction(userId, shippingAddress, paymentMethod);
-  }
+  if (await mongoTransactionsAvailable()) return createWithTransaction(userId, shippingAddress, paymentMethod);
   return createWithCompensation(userId, shippingAddress, paymentMethod);
 }
 
@@ -162,7 +199,6 @@ async function updateStatusWithTransaction(id: string, status: OrderStatus) {
         }
       }
     }
-
     return order;
   });
 }
@@ -200,8 +236,6 @@ async function updateStatusWithCompensation(id: string, status: OrderStatus) {
 }
 
 export async function updateStatus(id: string, status: OrderStatus) {
-  if (await mongoTransactionsAvailable()) {
-    return updateStatusWithTransaction(id, status);
-  }
+  if (await mongoTransactionsAvailable()) return updateStatusWithTransaction(id, status);
   return updateStatusWithCompensation(id, status);
 }

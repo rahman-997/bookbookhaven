@@ -3,15 +3,30 @@ import { HttpError } from '../../errors/http-error';
 import { Book } from '../books/book.model';
 import { Review } from './review.model';
 
-export async function listForBook(bookId: string) {
-  const [reviews, summary] = await Promise.all([
-    Review.find({ book: bookId }).populate('user', 'name').sort({ createdAt: -1 }).lean(),
+export async function listForBook(bookId: string, input: { page: number; limit: number }) {
+  const [reviews, summary, total] = await Promise.all([
+    Review.find({ book: bookId })
+      .populate('user', 'name')
+      .sort({ createdAt: -1 })
+      .skip((input.page - 1) * input.limit)
+      .limit(input.limit)
+      .lean(),
     Review.aggregate([
       { $match: { book: new Types.ObjectId(bookId) } },
       { $group: { _id: '$book', averageRating: { $avg: '$rating' }, count: { $sum: 1 } } }
-    ])
+    ]),
+    Review.countDocuments({ book: bookId })
   ]);
-  return { reviews, summary: summary[0] ?? { averageRating: 0, count: 0 } };
+  return {
+    reviews,
+    summary: summary[0] ?? { averageRating: 0, count: 0 },
+    pagination: {
+      page: input.page,
+      limit: input.limit,
+      total,
+      pages: Math.max(1, Math.ceil(total / input.limit))
+    }
+  };
 }
 
 export async function upsert(userId: string, bookId: string, input: { rating: number; comment: string }) {

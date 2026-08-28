@@ -1,6 +1,6 @@
 {
   "name": "bookhaven",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "description": "A production-oriented full-stack bookstore built with Next.js, React, Express, TypeScript, MongoDB, and Zod.",
   "private": true,
   "scripts": {
@@ -8,8 +8,9 @@
     "typecheck": "npm run typecheck --prefix backend && npm run typecheck --prefix frontend",
     "build": "npm run build --prefix backend && npm run build --prefix frontend",
     "test": "npm test --prefix backend",
-    "verify": "npm run typecheck && npm test && npm run build",
-    "build:free": "npm install --include=dev --no-audit --no-fund --prefix backend && npm run typecheck --prefix backend && npm test --prefix backend && npm run build --prefix backend && npm install --include=dev --no-audit --no-fund --prefix frontend && npm run typecheck --prefix frontend && npm run build --prefix frontend",
+    "audit:prod": "npm audit --omit=dev --audit-level=high --prefix backend && npm audit --omit=dev --audit-level=high --prefix frontend",
+    "verify": "npm run typecheck && npm test && npm run audit:prod && npm run build",
+    "build:free": "npm install --include=dev --no-audit --no-fund --prefix backend && npm run typecheck --prefix backend && npm test --prefix backend && npm audit --omit=dev --audit-level=high --prefix backend && npm run build --prefix backend && npm install --include=dev --no-audit --no-fund --prefix frontend && npm run typecheck --prefix frontend && npm audit --omit=dev --audit-level=high --prefix frontend && npm run build --prefix frontend",
     "start:free": "node scripts/start-free-hosting.mjs",
     "seed:free": "node backend/dist/seed.js"
   },

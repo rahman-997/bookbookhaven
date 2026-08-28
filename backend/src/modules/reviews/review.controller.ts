@@ -3,8 +3,8 @@ import type { AuthRequest } from '../auth/auth.middleware';
 import * as service from './review.service';
 
 export async function list(req: Request<{ bookId: string }>, res: Response) {
-  const data = await service.listForBook(req.params.bookId);
-  res.json({ success: true, data: data.reviews, meta: data.summary });
+  const result = await service.listForBook(req.params.bookId, res.locals.validatedQuery);
+  res.json({ success: true, data: result.reviews, meta: { ...result.summary, pagination: result.pagination } });
 }
 
 export async function upsert(req: AuthRequest<{ bookId: string }>, res: Response) {

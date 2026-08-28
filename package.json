@@ -4,13 +4,13 @@
   "description": "A production-oriented full-stack bookstore built with Next.js, React, Express, TypeScript, MongoDB, and Zod.",
   "private": true,
   "scripts": {
-    "install:all": "npm install --no-audit --no-fund --prefix backend && npm install --no-audit --no-fund --prefix frontend",
+    "install:all": "npm ci --no-audit --no-fund --prefix backend && npm ci --no-audit --no-fund --prefix frontend",
     "audit:prod": "npm audit --omit=dev --audit-level=high --prefix backend && npm audit --omit=dev --audit-level=high --prefix frontend",
     "typecheck": "npm run typecheck --prefix backend && npm run typecheck --prefix frontend",
     "build": "npm run build --prefix backend && npm run build --prefix frontend",
     "test": "npm test --prefix backend",
     "verify": "npm run audit:prod && npm run typecheck && npm test && npm run build",
-    "build:free": "npm install --include=dev --no-audit --no-fund --prefix backend && npm audit --omit=dev --audit-level=high --prefix backend && npm run typecheck --prefix backend && npm test --prefix backend && npm run build --prefix backend && npm install --include=dev --no-audit --no-fund --prefix frontend && npm audit --omit=dev --audit-level=high --prefix frontend && npm run typecheck --prefix frontend && npm run build --prefix frontend",
+    "build:free": "npm ci --include=dev --no-audit --no-fund --prefix backend && npm audit --omit=dev --audit-level=high --prefix backend && npm run typecheck --prefix backend && npm test --prefix backend && npm run build --prefix backend && npm ci --include=dev --no-audit --no-fund --prefix frontend && npm audit --omit=dev --audit-level=high --prefix frontend && npm run typecheck --prefix frontend && npm run build --prefix frontend",
     "start:free": "node scripts/start-free-hosting.mjs",
     "seed:free": "node backend/dist/seed.js"
   },

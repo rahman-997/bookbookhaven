@@ -1,5 +1,6 @@
 import { HttpError } from '../../errors/http-error';
 import { Cart } from '../cart/cart.model';
+import { Order } from '../orders/order.model';
 import { Review } from '../reviews/review.model';
 import { Wishlist } from '../wishlist/wishlist.model';
 import { Book } from './book.model';
@@ -76,6 +77,16 @@ export async function update(id: string, input: Record<string, unknown>) {
 }
 
 export async function remove(id: string) {
+  const activeOrder = await Order.exists({ 'items.book': id, status: { $in: ['pending', 'confirmed'] } });
+  if (activeOrder) {
+    throw new HttpError(
+      409,
+      'Book is referenced by an active order and cannot be deleted until fulfillment or cancellation is complete.',
+      undefined,
+      'BOOK_HAS_ACTIVE_ORDERS'
+    );
+  }
+
   const book = await Book.findByIdAndDelete(id).lean();
   if (!book) throw new HttpError(404, 'Book not found', undefined, 'BOOK_NOT_FOUND');
   await Promise.all([

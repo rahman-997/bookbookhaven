@@ -3,6 +3,12 @@ import { z } from 'zod';
 
 const DEVELOPMENT_SECRET = 'development-only-secret-change-me';
 const DEVELOPMENT_ADMIN_PASSWORD = 'ChangeMe123!';
+const PLACEHOLDER_PATTERNS = ['replace-with', 'change-me', 'changeme', 'password', 'example-secret'];
+
+function looksLikePlaceholder(value: string) {
+  const normalized = value.toLowerCase().replaceAll('_', '-');
+  return PLACEHOLDER_PATTERNS.some((pattern) => normalized.includes(pattern));
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -19,11 +25,11 @@ const envSchema = z.object({
 const parsed = envSchema.parse(process.env);
 
 if (parsed.NODE_ENV === 'production') {
-  if (parsed.JWT_SECRET === DEVELOPMENT_SECRET || parsed.JWT_SECRET.length < 32) {
-    throw new Error('JWT_SECRET must be explicitly configured with at least 32 characters in production');
+  if (parsed.JWT_SECRET === DEVELOPMENT_SECRET || parsed.JWT_SECRET.length < 32 || looksLikePlaceholder(parsed.JWT_SECRET)) {
+    throw new Error('JWT_SECRET must be a non-placeholder secret with at least 32 characters in production');
   }
-  if (parsed.ADMIN_PASSWORD === DEVELOPMENT_ADMIN_PASSWORD || parsed.ADMIN_PASSWORD.length < 12) {
-    throw new Error('ADMIN_PASSWORD must be explicitly configured with at least 12 characters in production');
+  if (parsed.ADMIN_PASSWORD === DEVELOPMENT_ADMIN_PASSWORD || parsed.ADMIN_PASSWORD.length < 12 || looksLikePlaceholder(parsed.ADMIN_PASSWORD)) {
+    throw new Error('ADMIN_PASSWORD must be a non-placeholder password with at least 12 characters in production');
   }
   if (parsed.MONGO_URI.startsWith('mongodb://localhost')) {
     throw new Error('MONGO_URI must be explicitly configured in production');

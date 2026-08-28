@@ -239,6 +239,7 @@ paths:
       responses:
         '204': { description: Deleted }
         '403': { description: Admin role required }
+        '409': { description: Book is referenced by a pending or confirmed order }
   /cart:
     get:
       summary: Current cart
@@ -351,6 +352,15 @@ paths:
         '201': { description: Order created }
         '400': { description: Cart empty }
         '409': { description: Checkout already running or stock changed }
+  /orders/{id}:
+    get:
+      summary: Current user's order detail
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Owned order detail }
+        '404': { description: Order not found or not owned by current user }
   /orders/admin/all:
     get:
       summary: List all orders

@@ -29,7 +29,7 @@ const cartSchema = new Schema<CartDocument>(
     items: { type: [cartItemSchema], default: [] },
     checkoutLockedAt: { type: Date, default: null }
   },
-  { timestamps: true }
+  { timestamps: true, optimisticConcurrency: true }
 );
 
 export const Cart = model<CartDocument>('Cart', cartSchema);

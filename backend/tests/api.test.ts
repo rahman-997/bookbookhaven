@@ -19,16 +19,43 @@ beforeAll(async () => {
   await mkdir(mongoDownloadDir, { recursive: true });
   mongo = await MongoMemoryServer.create({ binary: { downloadDir: mongoDownloadDir } });
   await mongoose.connect(mongo.getUri());
+  await Promise.all([User.syncIndexes(), Book.syncIndexes(), Cart.syncIndexes(), Order.syncIndexes(), Review.syncIndexes(), Wishlist.syncIndexes()]);
 });
-afterEach(async () => { await mongoose.connection.db?.dropDatabase(); });
+afterEach(async () => {
+  await Promise.all([
+    User.deleteMany({}),
+    Book.deleteMany({}),
+    Cart.deleteMany({}),
+    Order.deleteMany({}),
+    Review.deleteMany({}),
+    Wishlist.deleteMany({})
+  ]);
+});
 afterAll(async () => { await mongoose.disconnect(); await mongo?.stop(); });
 
 async function register(email = 'test@example.com') {
   const res = await request(app).post('/api/v1/auth/register').send({ name: 'Test User', email, password: 'VeryStrong123!' });
   return { token: res.body.data.token as string, user: res.body.data.user };
 }
-async function createBook() {
-  return Book.create({ title: 'Test Book', slug: 'test-book', author: 'Tester', description: 'A useful test book', price: 10, stock: 4, categories: ['test'], featured: false });
+
+async function registerAdmin(email = 'admin-test@example.com') {
+  const result = await register(email);
+  await User.updateOne({ email }, { $set: { role: 'admin' } });
+  return result;
+}
+
+async function createBook(overrides: Record<string, unknown> = {}) {
+  return Book.create({
+    title: 'Test Book',
+    slug: 'test-book',
+    author: 'Tester',
+    description: 'A useful test book',
+    price: 10,
+    stock: 4,
+    categories: ['test'],
+    featured: false,
+    ...overrides
+  });
 }
 
 describe('BookHaven API', () => {
@@ -45,6 +72,26 @@ describe('BookHaven API', () => {
     expect(res.body.data.expiresInSeconds).toEqual(expect.any(Number));
     expect(res.body.data.expiresInSeconds).toBeGreaterThan(0);
     expect(res.body.data.user.email).toBe('test@example.com');
+  });
+
+  it('logs in, exposes current user, and keeps admin APIs protected by RBAC', async () => {
+    await register('customer@example.com');
+    const login = await request(app).post('/api/v1/auth/login').send({ email: 'customer@example.com', password: 'VeryStrong123!' });
+    expect(login.statusCode).toBe(200);
+    const token = login.body.data.token as string;
+
+    const me = await request(app).get('/api/v1/auth/me').set({ Authorization: `Bearer ${token}` });
+    expect(me.statusCode).toBe(200);
+    expect(me.body.data.email).toBe('customer@example.com');
+    expect(me.body.data.role).toBe('customer');
+
+    const anonymous = await request(app).post('/api/v1/books').send({});
+    expect(anonymous.statusCode).toBe(401);
+
+    const forbidden = await request(app).post('/api/v1/books').set({ Authorization: `Bearer ${token}` }).send({
+      title: 'Forbidden', slug: 'forbidden', author: 'Reader', description: '', price: 1, stock: 1, categories: [], featured: false
+    });
+    expect(forbidden.statusCode).toBe(403);
   });
 
   it('returns centralized validation errors', async () => {
@@ -71,12 +118,41 @@ describe('BookHaven API', () => {
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
   });
 
+  it('enforces unique slug and ISBN through the admin API', async () => {
+    const { token } = await registerAdmin('catalog-admin@example.com');
+    const auth = { Authorization: `Bearer ${token}` };
+    const payload = {
+      title: 'Unique Book', slug: 'unique-book', author: 'Author', description: 'Catalog test', coverUrl: 'https://example.com/book.jpg', isbn: '9780000000001', price: 12, stock: 3, categories: ['test'], featured: false
+    };
+    expect((await request(app).post('/api/v1/books').set(auth).send(payload)).statusCode).toBe(201);
+    const duplicate = await request(app).post('/api/v1/books').set(auth).send({ ...payload, title: 'Duplicate' });
+    expect(duplicate.statusCode).toBe(409);
+    expect(duplicate.body.error.code).toBe('CONFLICT');
+  });
+
+  it('retries concurrent cart additions without losing quantity', async () => {
+    const { token } = await register('cart-race@example.com');
+    const book = await createBook({ stock: 10 });
+    const auth = { Authorization: `Bearer ${token}` };
+
+    const results = await Promise.all([
+      request(app).post('/api/v1/cart/items').set(auth).send({ bookId: String(book._id), quantity: 1 }),
+      request(app).post('/api/v1/cart/items').set(auth).send({ bookId: String(book._id), quantity: 1 })
+    ]);
+    expect(results.map((result) => result.statusCode)).toEqual([201, 201]);
+
+    const cart = await request(app).get('/api/v1/cart').set(auth);
+    expect(cart.statusCode).toBe(200);
+    expect(cart.body.data.items).toHaveLength(1);
+    expect(cart.body.data.items[0].quantity).toBe(2);
+  });
+
   it('blocks cart mutation while checkout holds an active lock', async () => {
     const { token, user } = await register('locked-cart@example.com');
     const book = await createBook();
     const auth = { Authorization: `Bearer ${token}` };
     await request(app).post('/api/v1/cart/items').set(auth).send({ bookId: String(book._id), quantity: 1 });
-    await Cart.updateOne({ user: user.id }, { $set: { checkoutLockedAt: new Date() } });
+    await Cart.updateOne({ user: user.id }, { $set: { checkoutLockedAt: new Date() }, $inc: { __v: 1 } });
     const res = await request(app).patch(`/api/v1/cart/items/${book._id}`).set(auth).send({ quantity: 2 });
     expect(res.statusCode).toBe(409);
     expect(res.body.error.code).toBe('CART_LOCKED');
@@ -98,6 +174,26 @@ describe('BookHaven API', () => {
     expect((await request(app).get('/api/v1/cart').set(auth)).body.data.items).toHaveLength(0);
   });
 
+  it('returns an owned order detail and hides it from another customer', async () => {
+    const owner = await register('owner@example.com');
+    const outsider = await register('outsider@example.com');
+    const book = await createBook();
+    const ownerAuth = { Authorization: `Bearer ${owner.token}` };
+    const outsiderAuth = { Authorization: `Bearer ${outsider.token}` };
+
+    await request(app).post('/api/v1/cart/items').set(ownerAuth).send({ bookId: String(book._id), quantity: 1 });
+    const created = await request(app).post('/api/v1/orders').set(ownerAuth).send({ shippingAddress: '123 Test Street, Test City', paymentMethod: 'manual' });
+    const orderId = created.body.data._id as string;
+
+    const ownDetail = await request(app).get(`/api/v1/orders/${orderId}`).set(ownerAuth);
+    expect(ownDetail.statusCode).toBe(200);
+    expect(ownDetail.body.data._id).toBe(orderId);
+
+    const hidden = await request(app).get(`/api/v1/orders/${orderId}`).set(outsiderAuth);
+    expect(hidden.statusCode).toBe(404);
+    expect(hidden.body.error.code).toBe('ORDER_NOT_FOUND');
+  });
+
   it('prevents duplicate concurrent checkout for the same cart', async () => {
     const { token } = await register('checkout@example.com');
     const book = await createBook();
@@ -113,8 +209,7 @@ describe('BookHaven API', () => {
   });
 
   it('enforces order transitions and restores stock only once on cancellation', async () => {
-    const { token } = await register('order@example.com');
-    await User.updateOne({ email: 'order@example.com' }, { $set: { role: 'admin' } });
+    const { token } = await registerAdmin('order@example.com');
     const book = await createBook();
     const auth = { Authorization: `Bearer ${token}` };
     await request(app).post('/api/v1/cart/items').set(auth).send({ bookId: String(book._id), quantity: 1 });
@@ -131,9 +226,39 @@ describe('BookHaven API', () => {
     expect((await Book.findById(book._id).lean())?.stock).toBe(4);
   });
 
+  it('prevents deleting inventory while an active order still depends on it', async () => {
+    const { token } = await registerAdmin('delete-guard@example.com');
+    const book = await createBook();
+    const auth = { Authorization: `Bearer ${token}` };
+    await request(app).post('/api/v1/cart/items').set(auth).send({ bookId: String(book._id), quantity: 1 });
+    const created = await request(app).post('/api/v1/orders').set(auth).send({ shippingAddress: '123 Test Street, Test City', paymentMethod: 'manual' });
+    expect(created.statusCode).toBe(201);
+
+    const blocked = await request(app).delete(`/api/v1/books/${book._id}`).set(auth);
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.body.error.code).toBe('BOOK_HAS_ACTIVE_ORDERS');
+    expect(await Book.exists({ _id: book._id })).not.toBeNull();
+  });
+
+  it('prevents a customer from deleting another customer review', async () => {
+    const owner = await register('review-owner@example.com');
+    const outsider = await register('review-outsider@example.com');
+    const book = await createBook();
+    const created = await request(app)
+      .put(`/api/v1/reviews/book/${book._id}`)
+      .set({ Authorization: `Bearer ${owner.token}` })
+      .send({ rating: 4, comment: 'Helpful' });
+    expect(created.statusCode).toBe(201);
+
+    const denied = await request(app)
+      .delete(`/api/v1/reviews/${created.body.data._id}`)
+      .set({ Authorization: `Bearer ${outsider.token}` });
+    expect(denied.statusCode).toBe(403);
+  });
+
   it('cleans cart, wishlist and reviews when an admin deletes a book', async () => {
-    const { token } = await register('admin-test@example.com');
-    const user = await User.findOneAndUpdate({ email: 'admin-test@example.com' }, { $set: { role: 'admin' } }, { returnDocument: 'after' });
+    const { token } = await registerAdmin('cleanup-admin@example.com');
+    const user = await User.findOne({ email: 'cleanup-admin@example.com' });
     expect(user).not.toBeNull();
     const book = await createBook();
     const auth = { Authorization: `Bearer ${token}` };

@@ -1,5 +1,6 @@
 import type { Response } from 'express';
 import type { AuthRequest } from '../auth/auth.middleware';
+import type { OrderStatus } from './order.model';
 import * as service from './order.service';
 
 export async function listMine(req: AuthRequest, res: Response) {
@@ -16,7 +17,9 @@ export async function create(req: AuthRequest, res: Response) {
 }
 
 export async function listAll(_req: AuthRequest, res: Response) {
-  res.json({ success: true, data: await service.listAll() });
+  const query = res.locals.validatedQuery as { page: number; limit: number; status?: OrderStatus; search?: string };
+  const result = await service.listAll(query);
+  res.json({ success: true, data: result.items, meta: result.pagination });
 }
 
 export async function updateStatus(req: AuthRequest<{ id: string }>, res: Response) {

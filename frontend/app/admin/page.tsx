@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import type { Book, Order } from '@/lib/types';
-import { BookIcon, CheckIcon, PackageIcon, PlusIcon, ShieldIcon, TrashIcon, UserIcon } from '@/app/components/Icons';
+import { BookIcon, CheckIcon, PackageIcon, PlusIcon, SearchIcon, ShieldIcon, TrashIcon, UserIcon } from '@/app/components/Icons';
 
 type Stats = {
   books: number;
@@ -36,42 +36,63 @@ export default function AdminPage() {
   const [books, setBooks] = useState<Book[]>([]);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [overviewLoading, setOverviewLoading] = useState(true);
   const [ordersLoading, setOrdersLoading] = useState(true);
+  const [booksLoading, setBooksLoading] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState('');
   const [editingBook, setEditingBook] = useState<Book | null>(null);
+
+  const [bookSearchDraft, setBookSearchDraft] = useState('');
+  const [bookSearch, setBookSearch] = useState('');
+  const [bookPage, setBookPage] = useState(1);
+  const [bookMeta, setBookMeta] = useState<Pagination>({ page: 1, limit: 24, total: 0, pages: 1 });
+
   const [orderStatus, setOrderStatus] = useState<'all' | Order['status']>('all');
   const [orderSearchDraft, setOrderSearchDraft] = useState('');
   const [orderSearch, setOrderSearch] = useState('');
   const [orderPage, setOrderPage] = useState(1);
   const [orderMeta, setOrderMeta] = useState<Pagination>({ page: 1, limit: 20, total: 0, pages: 1 });
 
-  const loadDashboard = useCallback(async () => {
-    setLoading(true);
+  const loadOverview = useCallback(async () => {
+    setOverviewLoading(true);
     try {
-      const [statsRes, booksRes] = await Promise.all([
-        fetch('/api/backend/admin/stats', { cache: 'no-store' }),
-        fetch('/api/backend/books?limit=100&sort=title', { cache: 'no-store' })
-      ]);
-
-      if (statsRes.status === 401 || statsRes.status === 403) {
+      const response = await fetch('/api/backend/admin/stats', { cache: 'no-store' });
+      if (response.status === 401 || response.status === 403) {
+        setStats(null);
         setMessage('Admin sign-in required.');
         return;
       }
-
-      if (!statsRes.ok || !booksRes.ok) {
-        setMessage('Could not load the complete admin dashboard.');
+      if (!response.ok) {
+        setMessage('Could not load dashboard statistics.');
         return;
       }
-
-      setStats((await statsRes.json()).data);
-      setBooks((await booksRes.json()).data ?? []);
+      setStats((await response.json()).data);
     } catch {
       setMessage('Could not reach the BookHaven API.');
     } finally {
-      setLoading(false);
+      setOverviewLoading(false);
     }
   }, []);
+
+  const loadBooks = useCallback(async () => {
+    setBooksLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(bookPage), limit: '24', sort: 'title' });
+      if (bookSearch) params.set('search', bookSearch);
+      const response = await fetch(`/api/backend/books?${params.toString()}`, { cache: 'no-store' });
+      if (!response.ok) {
+        setMessage('Could not load catalog inventory.');
+        return;
+      }
+      const payload = await response.json();
+      setBooks(payload.data ?? []);
+      setBookMeta(payload.meta ?? { page: bookPage, limit: 24, total: (payload.data ?? []).length, pages: 1 });
+    } catch {
+      setMessage('Could not reach catalog inventory.');
+    } finally {
+      setBooksLoading(false);
+    }
+  }, [bookPage, bookSearch]);
 
   const loadOrders = useCallback(async () => {
     setOrdersLoading(true);
@@ -82,6 +103,7 @@ export default function AdminPage() {
 
       const response = await fetch(`/api/backend/orders/admin/all?${params.toString()}`, { cache: 'no-store' });
       if (response.status === 401 || response.status === 403) {
+        setOrders([]);
         setMessage('Admin sign-in required.');
         return;
       }
@@ -100,13 +122,9 @@ export default function AdminPage() {
     }
   }, [orderPage, orderSearch, orderStatus]);
 
-  useEffect(() => {
-    void loadDashboard();
-  }, [loadDashboard]);
-
-  useEffect(() => {
-    void loadOrders();
-  }, [loadOrders]);
+  useEffect(() => { void loadOverview(); }, [loadOverview]);
+  useEffect(() => { void loadBooks(); }, [loadBooks]);
+  useEffect(() => { void loadOrders(); }, [loadOrders]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -123,25 +141,18 @@ export default function AdminPage() {
       isbn: String(form.get('isbn') ?? '').trim() || undefined,
       price: Number(form.get('price')),
       stock: Number(form.get('stock')),
-      categories: String(form.get('categories') ?? '')
-        .split(',')
-        .map((value) => value.trim())
-        .filter(Boolean),
+      categories: String(form.get('categories') ?? '').split(',').map((value) => value.trim()).filter(Boolean),
       featured: form.get('featured') === 'on'
     };
 
     const editing = editingBook;
-    const endpoint = editing ? `/api/backend/books/${editing._id}` : '/api/backend/books';
-    const method = editing ? 'PATCH' : 'POST';
-
     try {
-      const response = await fetch(endpoint, {
-        method,
+      const response = await fetch(editing ? `/api/backend/books/${editing._id}` : '/api/backend/books', {
+        method: editing ? 'PATCH' : 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload)
       });
       const result = await response.json().catch(() => null);
-
       if (!response.ok) {
         setMessage(result?.error?.message ?? `Could not ${editing ? 'update' : 'create'} book.`);
         return;
@@ -150,7 +161,9 @@ export default function AdminPage() {
       setMessage(editing ? 'Book changes published to the live catalog.' : 'Book created and added to the live catalog.');
       setEditingBook(null);
       event.currentTarget.reset();
-      await loadDashboard();
+      await Promise.all([loadBooks(), loadOverview()]);
+    } catch {
+      setMessage('Could not save the book.');
     } finally {
       setBusy(false);
     }
@@ -162,33 +175,53 @@ export default function AdminPage() {
       return;
     }
 
-    const response = await fetch(`/api/backend/books/${id}`, { method: 'DELETE' });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      setMessage(payload?.error?.message ?? 'Could not delete book.');
-      return;
-    }
+    try {
+      const response = await fetch(`/api/backend/books/${id}`, { method: 'DELETE' });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setMessage(payload?.error?.message ?? 'Could not delete book.');
+        return;
+      }
 
-    setMessage('Book and dependent reader data removed.');
-    setConfirmDelete('');
-    if (editingBook?._id === id) setEditingBook(null);
-    await loadDashboard();
+      setMessage('Book and dependent reader data removed.');
+      setConfirmDelete('');
+      if (editingBook?._id === id) setEditingBook(null);
+      await Promise.all([loadBooks(), loadOverview()]);
+    } catch {
+      setMessage('Could not delete book.');
+    }
   }
 
   async function updateOrder(id: string, status: Order['status']) {
-    const response = await fetch(`/api/backend/orders/admin/${id}/status`, {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ status })
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      setMessage(payload?.error?.message ?? 'Could not update order status.');
-      return;
-    }
+    try {
+      const response = await fetch(`/api/backend/orders/admin/${id}/status`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setMessage(payload?.error?.message ?? 'Could not update order status.');
+        return;
+      }
 
-    setMessage(`Order moved to ${status}.`);
-    await Promise.all([loadOrders(), loadDashboard()]);
+      setMessage(`Order moved to ${status}.`);
+      await Promise.all([loadOrders(), loadOverview()]);
+    } catch {
+      setMessage('Could not update order status.');
+    }
+  }
+
+  function submitBookSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBookSearch(bookSearchDraft.trim());
+    setBookPage(1);
+  }
+
+  function clearBookSearch() {
+    setBookSearchDraft('');
+    setBookSearch('');
+    setBookPage(1);
   }
 
   function submitOrderSearch(event: FormEvent<HTMLFormElement>) {
@@ -203,16 +236,14 @@ export default function AdminPage() {
     setOrderPage(1);
   }
 
-  const metrics = stats
-    ? [
-        ['Books', stats.books, <BookIcon key="b" size={18} />],
-        ['Readers', stats.users, <UserIcon key="u" size={18} />],
-        ['Orders', stats.orders, <PackageIcon key="o" size={18} />],
-        ['Reviews', stats.reviews, <CheckIcon key="r" size={18} />],
-        ['Low stock', stats.lowStock, <ShieldIcon key="l" size={18} />],
-        ['Order value', `$${stats.revenue.toFixed(2)}`, <span key="v">$</span>]
-      ]
-    : [];
+  const metrics = stats ? [
+    ['Books', stats.books, <BookIcon key="b" size={18} />],
+    ['Readers', stats.users, <UserIcon key="u" size={18} />],
+    ['Orders', stats.orders, <PackageIcon key="o" size={18} />],
+    ['Reviews', stats.reviews, <CheckIcon key="r" size={18} />],
+    ['Low stock', stats.lowStock, <ShieldIcon key="l" size={18} />],
+    ['Order value', `$${stats.revenue.toFixed(2)}`, <span key="v">$</span>]
+  ] : [];
 
   const firstOrder = orderMeta.total === 0 ? 0 : (orderMeta.page - 1) * orderMeta.limit + 1;
   const lastOrder = Math.min(orderMeta.page * orderMeta.limit, orderMeta.total);
@@ -234,7 +265,7 @@ export default function AdminPage() {
         </div>
       ) : null}
 
-      {loading ? <div className="surface mt-8 h-24 animate-pulse rounded-2xl" aria-label="Loading admin dashboard" /> : null}
+      {overviewLoading ? <div className="surface mt-8 h-24 animate-pulse rounded-2xl" aria-label="Loading admin dashboard" /> : null}
 
       {stats ? (
         <section className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
@@ -260,55 +291,82 @@ export default function AdminPage() {
           </div>
 
           <form key={editingBook?._id ?? 'new'} onSubmit={submit} className="mt-5 grid gap-3">
-            <input name="title" required defaultValue={editingBook?.title} placeholder="Title" className="admin-input" />
-            <input name="slug" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" defaultValue={editingBook?.slug} placeholder="slug-like-this" className="admin-input" />
-            <input name="author" required defaultValue={editingBook?.author} placeholder="Author" className="admin-input" />
+            <input name="title" required defaultValue={editingBook?.title} placeholder="Title" aria-label="Book title" className="admin-input" />
+            <input name="slug" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" defaultValue={editingBook?.slug} placeholder="slug-like-this" aria-label="Book slug" className="admin-input" />
+            <input name="author" required defaultValue={editingBook?.author} placeholder="Author" aria-label="Book author" className="admin-input" />
             <div className="grid grid-cols-2 gap-3">
-              <input name="price" required type="number" min="0" step="0.01" defaultValue={editingBook?.price} placeholder="Price" className="admin-input" />
-              <input name="stock" required type="number" min="0" step="1" defaultValue={editingBook?.stock} placeholder="Stock" className="admin-input" />
+              <input name="price" required type="number" min="0" step="0.01" defaultValue={editingBook?.price} placeholder="Price" aria-label="Book price" className="admin-input" />
+              <input name="stock" required type="number" min="0" step="1" defaultValue={editingBook?.stock} placeholder="Stock" aria-label="Book stock" className="admin-input" />
             </div>
-            <input name="coverUrl" type="url" pattern="https://.*" defaultValue={editingBook?.coverUrl} placeholder="HTTPS cover URL" className="admin-input" />
-            <input name="isbn" defaultValue={editingBook?.isbn} placeholder="ISBN (optional)" className="admin-input" />
-            <input name="categories" defaultValue={editingBook?.categories.join(', ')} placeholder="Categories, comma separated" className="admin-input" />
-            <textarea name="description" rows={5} maxLength={5000} defaultValue={editingBook?.description} placeholder="Description" className="admin-input" />
+            <input name="coverUrl" type="url" pattern="https://.*" defaultValue={editingBook?.coverUrl} placeholder="HTTPS cover URL" aria-label="Book cover URL" className="admin-input" />
+            <input name="isbn" defaultValue={editingBook?.isbn} placeholder="ISBN (optional)" aria-label="Book ISBN" className="admin-input" />
+            <input name="categories" defaultValue={editingBook?.categories.join(', ')} placeholder="Categories, comma separated" aria-label="Book categories" className="admin-input" />
+            <textarea name="description" rows={5} maxLength={5000} defaultValue={editingBook?.description} placeholder="Description" aria-label="Book description" className="admin-input" />
             <label className="flex items-center gap-2 text-sm text-slate-400">
               <input name="featured" type="checkbox" defaultChecked={editingBook?.featured} /> Feature this title
             </label>
             <button disabled={busy} className="button button--violet w-full">
               {busy ? 'Saving…' : editingBook ? 'Save catalog changes' : <>Publish book <PlusIcon size={16} /></>}
             </button>
-            {editingBook ? (
-              <button type="button" onClick={() => setEditingBook(null)} className="button button--ghost w-full">Cancel editing</button>
-            ) : null}
+            {editingBook ? <button type="button" onClick={() => setEditingBook(null)} className="button button--ghost w-full">Cancel editing</button> : null}
           </form>
         </section>
 
         <section className="space-y-9">
           <div>
-            <div className="flex items-center justify-between">
-              <div><p className="section-kicker">Inventory</p><h2 className="mt-1 text-2xl font-black">Catalog health</h2></div>
-              <span className="text-xs text-slate-600">{books.length} loaded</span>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="section-kicker">Inventory</p>
+                <h2 className="mt-1 text-2xl font-black">Catalog health</h2>
+                <p className="mt-1 text-xs text-slate-600">{bookMeta.total} matching titles</p>
+              </div>
+              <form onSubmit={submitBookSearch} className="flex w-full max-w-md gap-2">
+                <label className="relative flex-1">
+                  <span className="sr-only">Search catalog</span>
+                  <SearchIcon size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
+                  <input value={bookSearchDraft} onChange={(event) => setBookSearchDraft(event.target.value)} maxLength={200} placeholder="Search title, author or description" className="field !min-h-11 pl-9" />
+                </label>
+                <button type="submit" className="button button--ghost !min-h-11">Search</button>
+              </form>
             </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {books.map((book) => (
-                <article key={book._id} className={`glass rounded-2xl p-4 ${editingBook?._id === book._id ? 'ring-1 ring-violet-400/60' : ''}`}>
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0"><p className="truncate font-black">{book.title}</p><p className="mt-1 truncate text-xs text-slate-500">{book.author}</p></div>
-                    <span className={`chip shrink-0 ${book.stock <= 5 ? '!text-amber-200' : '!text-emerald-300'}`}>{book.stock} stock</span>
-                  </div>
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-                    <strong>${book.price.toFixed(2)}</strong>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => { setEditingBook(book); setConfirmDelete(''); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="button button--ghost !min-h-9 !px-3">Edit</button>
-                      <button type="button" onClick={() => void deleteBook(book._id)} className={`button !min-h-9 !px-2.5 ${confirmDelete === book._id ? 'button--danger' : 'button--ghost'}`} aria-label={confirmDelete === book._id ? `Confirm delete ${book.title}` : `Delete ${book.title}`}>
-                        <TrashIcon size={15} />{confirmDelete === book._id ? <span>Confirm</span> : null}
-                      </button>
+            {bookSearch ? (
+              <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-500">
+                <span>Searching for “{bookSearch}”</span>
+                <button type="button" onClick={clearBookSearch} className="font-bold text-violet-300 hover:text-violet-200">Clear search</button>
+              </div>
+            ) : null}
+
+            {booksLoading ? (
+              <div className="surface mt-4 h-28 animate-pulse rounded-2xl" aria-label="Loading catalog inventory" />
+            ) : (
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                {books.map((book) => (
+                  <article key={book._id} className={`glass rounded-2xl p-4 ${editingBook?._id === book._id ? 'ring-1 ring-violet-400/60' : ''}`}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0"><p className="truncate font-black">{book.title}</p><p className="mt-1 truncate text-xs text-slate-500">{book.author}</p></div>
+                      <span className={`chip shrink-0 ${book.stock <= 5 ? '!text-amber-200' : '!text-emerald-300'}`}>{book.stock} stock</span>
                     </div>
-                  </div>
-                </article>
-              ))}
-              {!loading && books.length === 0 ? <p className="text-sm text-slate-500">No books in the catalog yet.</p> : null}
-            </div>
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                      <strong>${book.price.toFixed(2)}</strong>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => { setEditingBook(book); setConfirmDelete(''); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="button button--ghost !min-h-9 !px-3">Edit</button>
+                        <button type="button" onClick={() => void deleteBook(book._id)} className={`button !min-h-9 !px-2.5 ${confirmDelete === book._id ? 'button--danger' : 'button--ghost'}`} aria-label={confirmDelete === book._id ? `Confirm delete ${book.title}` : `Delete ${book.title}`}>
+                          <TrashIcon size={15} />{confirmDelete === book._id ? <span>Confirm</span> : null}
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+            {!booksLoading && books.length === 0 ? <p className="mt-4 text-sm text-slate-500">No catalog titles match the current search.</p> : null}
+            {bookMeta.pages > 1 ? (
+              <nav className="mt-4 flex items-center justify-between gap-3" aria-label="Admin catalog pages">
+                <button type="button" disabled={bookPage <= 1 || booksLoading} onClick={() => setBookPage((current) => Math.max(1, current - 1))} className="button button--ghost disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
+                <span className="text-xs font-bold text-slate-500">Page {bookMeta.page} of {bookMeta.pages}</span>
+                <button type="button" disabled={bookPage >= bookMeta.pages || booksLoading} onClick={() => setBookPage((current) => Math.min(bookMeta.pages, current + 1))} className="button button--ghost disabled:cursor-not-allowed disabled:opacity-40">Next</button>
+              </nav>
+            ) : null}
           </div>
 
           <div>
@@ -322,23 +380,8 @@ export default function AdminPage() {
             <div className="glass mt-4 rounded-[1.4rem] p-4">
               <div className="grid gap-3 lg:grid-cols-[1fr_180px_auto]">
                 <form onSubmit={submitOrderSearch} className="flex gap-2 lg:contents">
-                  <input
-                    value={orderSearchDraft}
-                    onChange={(event) => setOrderSearchDraft(event.target.value)}
-                    maxLength={120}
-                    placeholder="Search order ID, reader, email, address or book"
-                    aria-label="Search orders"
-                    className="admin-input min-w-0 flex-1"
-                  />
-                  <select
-                    value={orderStatus}
-                    onChange={(event) => {
-                      setOrderStatus(event.target.value as 'all' | Order['status']);
-                      setOrderPage(1);
-                    }}
-                    aria-label="Filter orders by status"
-                    className="field !min-h-11 capitalize"
-                  >
+                  <input value={orderSearchDraft} onChange={(event) => setOrderSearchDraft(event.target.value)} maxLength={120} placeholder="Search order ID, reader, email, address or book" aria-label="Search orders" className="admin-input min-w-0 flex-1" />
+                  <select value={orderStatus} onChange={(event) => { setOrderStatus(event.target.value as 'all' | Order['status']); setOrderPage(1); }} aria-label="Filter orders by status" className="field !min-h-11 capitalize">
                     {orderStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
                   </select>
                   <button type="submit" className="button button--ghost !min-h-11">Search</button>

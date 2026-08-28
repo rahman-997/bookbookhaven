@@ -1,10 +1,10 @@
-import mongoose, { type ClientSession, type FilterQuery } from 'mongoose';
+import mongoose, { type ClientSession } from 'mongoose';
 import { mongoTransactionsAvailable } from '../../database/transactions';
 import { HttpError } from '../../errors/http-error';
 import { User } from '../auth/user.model';
 import { Book } from '../books/book.model';
 import { Cart } from '../cart/cart.model';
-import { Order, type OrderDocument, type OrderStatus, type PaymentMethod } from './order.model';
+import { Order, type OrderStatus, type PaymentMethod } from './order.model';
 
 const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
   pending: ['confirmed', 'cancelled'],
@@ -30,99 +30,80 @@ export async function getForUser(userId: string, id: string) {
 }
 
 export async function listAll(input: { page: number; limit: number; status?: OrderStatus; search?: string }) {
-  const filter: FilterQuery<OrderDocument> = {};
-  if (input.status) filter.status = input.status;
-
+  let searchFilter = {};
   if (input.search) {
     const search = input.search.trim();
     const regex = new RegExp(escapeRegex(search), 'i');
     const users = await User.find({ $or: [{ name: regex }, { email: regex }] }).select('_id').limit(100).lean();
-    const or: FilterQuery<OrderDocument>[] = [
-      { shippingAddress: regex },
-      { 'items.title': regex }
-    ];
+    const or: Array<Record<string, unknown>> = [{ shippingAddress: regex }, { 'items.title': regex }];
     if (mongoose.isValidObjectId(search)) or.push({ _id: search });
     if (users.length) or.push({ user: { $in: users.map((user) => user._id) } });
-    filter.$or = or;
+    searchFilter = { $or: or };
   }
+  const filter = { ...(input.status ? { status: input.status } : {}), ...searchFilter };
 
   const [items, total] = await Promise.all([
-    Order.find(filter)
-      .populate('user', 'name email')
-      .sort({ createdAt: -1 })
-      .skip((input.page - 1) * input.limit)
-      .limit(input.limit)
-      .lean(),
+    Order.find(filter).populate('user', 'name email').sort({ createdAt: -1 }).skip((input.page - 1) * input.limit).limit(input.limit).lean(),
     Order.countDocuments(filter)
   ]);
 
-  return {
-    items,
-    pagination: {
-      page: input.page,
-      limit: input.limit,
-      total,
-      pages: Math.max(1, Math.ceil(total / input.limit))
-    }
-  };
+  return { items, pagination: { page: input.page, limit: input.limit, total, pages: Math.max(1, Math.ceil(total / input.limit)) } };
 }
 
 async function acquireCheckoutCart(userId: string, session?: ClientSession) {
   const lockCutoff = new Date(Date.now() - CHECKOUT_LOCK_MS);
   const query = Cart.findOneAndUpdate(
-    {
-      user: userId,
-      'items.0': { $exists: true },
-      $or: [{ checkoutLockedAt: null }, { checkoutLockedAt: { $lt: lockCutoff } }]
-    },
+    { user: userId, 'items.0': { $exists: true }, $or: [{ checkoutLockedAt: null }, { checkoutLockedAt: { $lt: lockCutoff } }] },
     { $set: { checkoutLockedAt: new Date() }, $inc: { __v: 1 } },
     { returnDocument: 'after' }
   );
   if (session) query.session(session);
   const cart = await query;
+  if (cart) return cart;
 
-  if (!cart) {
-    const existingQuery = Cart.findOne({ user: userId }).select('items checkoutLockedAt');
-    if (session) existingQuery.session(session);
-    const existing = await existingQuery.lean();
-    if (!existing || existing.items.length === 0) throw new HttpError(400, 'Your cart is empty', undefined, 'EMPTY_CART');
-    throw new HttpError(409, 'Checkout is already in progress. Please wait a moment.', undefined, 'CHECKOUT_IN_PROGRESS');
+  const existingQuery = Cart.findOne({ user: userId }).select('items checkoutLockedAt');
+  if (session) existingQuery.session(session);
+  const existing = await existingQuery.lean();
+  if (!existing || existing.items.length === 0) throw new HttpError(400, 'Your cart is empty', undefined, 'EMPTY_CART');
+  throw new HttpError(409, 'Checkout is already in progress. Please wait a moment.', undefined, 'CHECKOUT_IN_PROGRESS');
+}
+
+async function buildCheckoutItems(cart: Awaited<ReturnType<typeof acquireCheckoutCart>>, session?: ClientSession) {
+  const originalCartItems = cart.items.map((item) => ({ book: item.book, quantity: item.quantity, unitPrice: item.unitPrice }));
+  const query = Book.find({ _id: { $in: originalCartItems.map((item) => item.book) } });
+  if (session) query.session(session);
+  const books = await query;
+  const byId = new Map(books.map((book) => [String(book._id), book]));
+  const items = originalCartItems.map((item) => {
+    const book = byId.get(String(item.book));
+    if (!book) throw new HttpError(409, 'A book in your cart is no longer available', undefined, 'BOOK_UNAVAILABLE');
+    if (book.stock < item.quantity) throw new HttpError(409, `${book.title} does not have enough stock`, undefined, 'INSUFFICIENT_STOCK');
+    return { book: book._id, title: book.title, quantity: item.quantity, unitPrice: book.price };
+  });
+  return { originalCartItems, items, subtotal: items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0) };
+}
+
+async function decrementInventory(items: Array<{ book: mongoose.Types.ObjectId; title: string; quantity: number }>, session?: ClientSession) {
+  const decremented: Array<{ id: string; quantity: number }> = [];
+  for (const item of items) {
+    const result = await Book.updateOne(
+      { _id: item.book, stock: { $gte: item.quantity } },
+      { $inc: { stock: -item.quantity } },
+      session ? { session } : undefined
+    );
+    if (result.modifiedCount !== 1) throw new HttpError(409, `${item.title} stock changed. Please review your cart.`, undefined, 'STOCK_CHANGED');
+    decremented.push({ id: String(item.book), quantity: item.quantity });
   }
-
-  return cart;
+  return decremented;
 }
 
 async function createWithTransaction(userId: string, shippingAddress: string, paymentMethod: PaymentMethod) {
   return mongoose.connection.transaction(async (session) => {
     const cart = await acquireCheckoutCart(userId, session);
-    const originalCartItems = cart.items.map((item) => ({ book: item.book, quantity: item.quantity, unitPrice: item.unitPrice }));
-    const bookIds = originalCartItems.map((item) => item.book);
-    const books = await Book.find({ _id: { $in: bookIds } }).session(session);
-    const byId = new Map(books.map((book) => [String(book._id), book]));
-
-    const items = originalCartItems.map((item) => {
-      const book = byId.get(String(item.book));
-      if (!book) throw new HttpError(409, 'A book in your cart is no longer available', undefined, 'BOOK_UNAVAILABLE');
-      if (book.stock < item.quantity) throw new HttpError(409, `${book.title} does not have enough stock`, undefined, 'INSUFFICIENT_STOCK');
-      return { book: book._id, title: book.title, quantity: item.quantity, unitPrice: book.price };
-    });
-    const subtotal = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
-
-    for (const item of items) {
-      const result = await Book.updateOne(
-        { _id: item.book, stock: { $gte: item.quantity } },
-        { $inc: { stock: -item.quantity } },
-        { session }
-      );
-      if (result.modifiedCount !== 1) throw new HttpError(409, `${item.title} stock changed. Please review your cart.`, undefined, 'STOCK_CHANGED');
-    }
-
-    const [order] = await Order.create(
-      [{ user: userId, items, subtotal, status: 'pending', paymentMethod, shippingAddress }],
-      { session }
-    );
+    const { items, subtotal } = await buildCheckoutItems(cart, session);
+    await decrementInventory(items, session);
+    const [order] = await Order.create([{ user: userId, items, subtotal, status: 'pending', paymentMethod, shippingAddress }], { session });
     if (!order) throw new HttpError(500, 'Could not create order', undefined, 'ORDER_CREATE_FAILED');
-
     cart.items = [];
     cart.checkoutLockedAt = null;
     await cart.save({ session });
@@ -132,28 +113,11 @@ async function createWithTransaction(userId: string, shippingAddress: string, pa
 
 async function createWithCompensation(userId: string, shippingAddress: string, paymentMethod: PaymentMethod) {
   const cart = await acquireCheckoutCart(userId);
-  const originalCartItems = cart.items.map((item) => ({ book: item.book, quantity: item.quantity, unitPrice: item.unitPrice }));
-  const bookIds = originalCartItems.map((item) => item.book);
-  const books = await Book.find({ _id: { $in: bookIds } });
-  const byId = new Map(books.map((book) => [String(book._id), book]));
+  const { originalCartItems, items, subtotal } = await buildCheckoutItems(cart);
   const decremented: Array<{ id: string; quantity: number }> = [];
   let orderId: string | null = null;
-
   try {
-    const items = originalCartItems.map((item) => {
-      const book = byId.get(String(item.book));
-      if (!book) throw new HttpError(409, 'A book in your cart is no longer available', undefined, 'BOOK_UNAVAILABLE');
-      if (book.stock < item.quantity) throw new HttpError(409, `${book.title} does not have enough stock`, undefined, 'INSUFFICIENT_STOCK');
-      return { book: book._id, title: book.title, quantity: item.quantity, unitPrice: book.price };
-    });
-    const subtotal = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
-
-    for (const item of items) {
-      const result = await Book.updateOne({ _id: item.book, stock: { $gte: item.quantity } }, { $inc: { stock: -item.quantity } });
-      if (result.modifiedCount !== 1) throw new HttpError(409, `${item.title} stock changed. Please review your cart.`, undefined, 'STOCK_CHANGED');
-      decremented.push({ id: String(item.book), quantity: item.quantity });
-    }
-
+    decremented.push(...await decrementInventory(items));
     const order = await Order.create({ user: userId, items, subtotal, status: 'pending', paymentMethod, shippingAddress });
     orderId = String(order._id);
     cart.items = [];
@@ -175,28 +139,24 @@ export async function create(userId: string, shippingAddress: string, paymentMet
   return createWithCompensation(userId, shippingAddress, paymentMethod);
 }
 
+function assertTransition(current: OrderStatus, target: OrderStatus) {
+  if (!allowedTransitions[current].includes(target)) {
+    throw new HttpError(409, `Cannot move order from ${current} to ${target}`, { from: current, to: target }, 'INVALID_ORDER_TRANSITION');
+  }
+}
+
 async function updateStatusWithTransaction(id: string, status: OrderStatus) {
   return mongoose.connection.transaction(async (session) => {
     const current = await Order.findById(id).session(session).lean();
     if (!current) throw new HttpError(404, 'Order not found', undefined, 'ORDER_NOT_FOUND');
     if (current.status === status) return current;
-    if (!allowedTransitions[current.status].includes(status)) {
-      throw new HttpError(409, `Cannot move order from ${current.status} to ${status}`, { from: current.status, to: status }, 'INVALID_ORDER_TRANSITION');
-    }
-
-    const order = await Order.findOneAndUpdate(
-      { _id: id, status: current.status },
-      { $set: { status } },
-      { returnDocument: 'after', session }
-    );
+    assertTransition(current.status, status);
+    const order = await Order.findOneAndUpdate({ _id: id, status: current.status }, { $set: { status } }, { returnDocument: 'after', session });
     if (!order) throw new HttpError(409, 'Order status changed in another request. Refresh and try again.', undefined, 'ORDER_STATUS_CHANGED');
-
     if (status === 'cancelled') {
       for (const item of order.items) {
         const result = await Book.updateOne({ _id: item.book }, { $inc: { stock: item.quantity } }, { session });
-        if (result.matchedCount !== 1) {
-          throw new HttpError(409, 'Could not restore all inventory. Cancellation was rolled back.', undefined, 'INVENTORY_RESTORE_FAILED');
-        }
+        if (result.matchedCount !== 1) throw new HttpError(409, 'Could not restore all inventory. Cancellation was rolled back.', undefined, 'INVENTORY_RESTORE_FAILED');
       }
     }
     return order;
@@ -207,30 +167,21 @@ async function updateStatusWithCompensation(id: string, status: OrderStatus) {
   const current = await Order.findById(id).lean();
   if (!current) throw new HttpError(404, 'Order not found', undefined, 'ORDER_NOT_FOUND');
   if (current.status === status) return current;
-  if (!allowedTransitions[current.status].includes(status)) {
-    throw new HttpError(409, `Cannot move order from ${current.status} to ${status}`, { from: current.status, to: status }, 'INVALID_ORDER_TRANSITION');
-  }
-
+  assertTransition(current.status, status);
   const order = await Order.findOneAndUpdate({ _id: id, status: current.status }, { $set: { status } }, { returnDocument: 'after' });
   if (!order) throw new HttpError(409, 'Order status changed in another request. Refresh and try again.', undefined, 'ORDER_STATUS_CHANGED');
+  if (status !== 'cancelled') return order;
 
-  if (status === 'cancelled') {
-    const restored = await Promise.allSettled(
-      order.items.map(async (item) => {
-        const result = await Book.updateOne({ _id: item.book }, { $inc: { stock: item.quantity } });
-        if (result.matchedCount !== 1) throw new Error(`Book ${String(item.book)} no longer exists`);
-        return { book: item.book, quantity: item.quantity };
-      })
-    );
-    const successful = restored
-      .filter((result): result is PromiseFulfilledResult<{ book: typeof order.items[number]['book']; quantity: number }> => result.status === 'fulfilled')
-      .map((result) => result.value);
-    const failed = restored.find((result) => result.status === 'rejected');
-    if (failed) {
-      await Promise.allSettled(successful.map((item) => Book.updateOne({ _id: item.book }, { $inc: { stock: -item.quantity } })));
-      await Order.updateOne({ _id: id, status: 'cancelled' }, { $set: { status: current.status } }).catch(() => undefined);
-      throw new HttpError(409, 'Could not restore all inventory. Order cancellation was rolled back.', undefined, 'INVENTORY_RESTORE_FAILED');
-    }
+  const restored = await Promise.allSettled(order.items.map(async (item) => {
+    const result = await Book.updateOne({ _id: item.book }, { $inc: { stock: item.quantity } });
+    if (result.matchedCount !== 1) throw new Error(`Book ${String(item.book)} no longer exists`);
+    return { book: item.book, quantity: item.quantity };
+  }));
+  const successful = restored.filter((result): result is PromiseFulfilledResult<{ book: typeof order.items[number]['book']; quantity: number }> => result.status === 'fulfilled').map((result) => result.value);
+  if (restored.some((result) => result.status === 'rejected')) {
+    await Promise.allSettled(successful.map((item) => Book.updateOne({ _id: item.book }, { $inc: { stock: -item.quantity } })));
+    await Order.updateOne({ _id: id, status: 'cancelled' }, { $set: { status: current.status } }).catch(() => undefined);
+    throw new HttpError(409, 'Could not restore all inventory. Order cancellation was rolled back.', undefined, 'INVENTORY_RESTORE_FAILED');
   }
   return order;
 }

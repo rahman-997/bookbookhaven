@@ -1,4 +1,6 @@
+import mongoose from 'mongoose';
 import { HttpError } from '../../errors/http-error';
+import { User } from '../auth/user.model';
 import { Book } from '../books/book.model';
 import { Cart } from '../cart/cart.model';
 import { Order, type OrderStatus, type PaymentMethod } from './order.model';
@@ -12,6 +14,17 @@ const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
 };
 const CHECKOUT_LOCK_MS = 5 * 60_000;
 
+type AdminOrderListInput = {
+  page: number;
+  limit: number;
+  status?: OrderStatus;
+  search?: string;
+};
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export async function listForUser(userId: string) {
   return Order.find({ user: userId }).sort({ createdAt: -1 }).lean();
 }
@@ -22,8 +35,42 @@ export async function getForUser(userId: string, id: string) {
   return order;
 }
 
-export async function listAll() {
-  return Order.find().populate('user', 'name email').sort({ createdAt: -1 }).limit(200).lean();
+export async function listAll(input: AdminOrderListInput) {
+  const filter: Record<string, unknown> = {};
+  if (input.status) filter.status = input.status;
+
+  if (input.search) {
+    const regex = new RegExp(escapeRegex(input.search), 'i');
+    const users = await User.find({ $or: [{ name: regex }, { email: regex }] }).select('_id').limit(100).lean();
+    const conditions: Record<string, unknown>[] = [
+      { shippingAddress: regex },
+      { 'items.title': regex }
+    ];
+    if (users.length > 0) conditions.push({ user: { $in: users.map((user) => user._id) } });
+    if (mongoose.isValidObjectId(input.search)) conditions.push({ _id: input.search });
+    filter.$or = conditions;
+  }
+
+  const skip = (input.page - 1) * input.limit;
+  const [items, total] = await Promise.all([
+    Order.find(filter)
+      .populate('user', 'name email')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(input.limit)
+      .lean(),
+    Order.countDocuments(filter)
+  ]);
+
+  return {
+    items,
+    pagination: {
+      page: input.page,
+      limit: input.limit,
+      total,
+      pages: Math.max(1, Math.ceil(total / input.limit))
+    }
+  };
 }
 
 export async function create(userId: string, shippingAddress: string, paymentMethod: PaymentMethod) {

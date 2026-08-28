@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: BookHaven API
-  version: 4.0.0
-  description: REST API for the BookHaven catalog, authentication, cart, wishlist, reviews, orders and administration.
+  version: 4.1.0
+  description: Production-oriented REST API for BookHaven commerce, catalog, reader state and administration.
 servers:
   - url: http://localhost:3001/api/v1
 components:
@@ -43,7 +43,7 @@ components:
       type: object
       required: [name, email, password]
       properties:
-        name: { type: string }
+        name: { type: string, maxLength: 120 }
         email: { type: string, format: email }
         password: { type: string, minLength: 8 }
     AuthSession:
@@ -53,53 +53,33 @@ components:
         user: { $ref: '#/components/schemas/User' }
         token: { type: string }
         expiresInSeconds: { type: integer, minimum: 1 }
-    AuthSessionEnvelope:
-      type: object
-      required: [success, data]
-      properties:
-        success: { type: boolean, const: true }
-        data: { $ref: '#/components/schemas/AuthSession' }
     Book:
       type: object
       required: [_id, title, slug, author, description, price, stock, categories, featured]
       properties:
         _id: { type: string }
-        title: { type: string }
-        slug: { type: string }
-        author: { type: string }
-        description: { type: string }
+        title: { type: string, maxLength: 200 }
+        slug: { type: string, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' }
+        author: { type: string, maxLength: 160 }
+        description: { type: string, maxLength: 5000 }
         coverUrl: { type: string, format: uri, pattern: '^https://' }
-        isbn: { type: string }
+        isbn: { type: string, description: Normalized ISBN-10 or ISBN-13 without spaces/hyphens. }
         price: { type: number, minimum: 0 }
         stock: { type: integer, minimum: 0 }
-        categories: { type: array, items: { type: string } }
+        categories: { type: array, maxItems: 20, items: { type: string } }
         featured: { type: boolean }
-    BookCreateInput:
+    BookInput:
       type: object
-      required: [title, slug, author, description, price, stock]
       properties:
-        title: { type: string }
+        title: { type: string, maxLength: 200 }
         slug: { type: string, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' }
-        author: { type: string }
+        author: { type: string, maxLength: 160 }
         description: { type: string, maxLength: 5000 }
         coverUrl: { type: string, format: uri, pattern: '^https://' }
         isbn: { type: string }
         price: { type: number, minimum: 0 }
         stock: { type: integer, minimum: 0 }
-        categories: { type: array, items: { type: string } }
-        featured: { type: boolean }
-    BookPatchInput:
-      type: object
-      properties:
-        title: { type: string }
-        slug: { type: string, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' }
-        author: { type: string }
-        description: { type: string, maxLength: 5000 }
-        coverUrl: { type: string, format: uri, pattern: '^https://' }
-        isbn: { type: string }
-        price: { type: number, minimum: 0 }
-        stock: { type: integer, minimum: 0 }
-        categories: { type: array, items: { type: string } }
+        categories: { type: array, maxItems: 20, items: { type: string } }
         featured: { type: boolean }
     CartAddInput:
       type: object
@@ -132,119 +112,101 @@ components:
 paths:
   /health:
     get:
-      summary: Service health
+      summary: Service health/readiness
       responses:
-        '200': { description: Healthy }
+        '200': { description: Healthy and MongoDB connected }
         '503': { description: Database unavailable }
   /auth/register:
     post:
-      summary: Register customer
+      summary: Register a customer
       requestBody:
         required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/RegisterInput' }
+        content: { application/json: { schema: { $ref: '#/components/schemas/RegisterInput' } } }
       responses:
-        '201':
-          description: Registered
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AuthSessionEnvelope' }
+        '201': { description: Registered; includes JWT for trusted server/BFF use }
         '400': { description: Validation error }
         '409': { description: Email already registered }
   /auth/login:
     post:
-      summary: Login
+      summary: Authenticate
       requestBody:
         required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/AuthInput' }
+        content: { application/json: { schema: { $ref: '#/components/schemas/AuthInput' } } }
       responses:
-        '200':
-          description: Authenticated
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AuthSessionEnvelope' }
+        '200': { description: Authenticated; includes JWT for trusted server/BFF use }
         '401': { description: Invalid credentials }
   /auth/me:
     get:
-      summary: Current user
+      summary: Current authenticated user
       security: [{ bearerAuth: [] }]
       responses:
         '200': { description: Current user }
         '401': { description: Authentication required }
   /books:
     get:
-      summary: List and search books
+      summary: Paginated catalog search/filter/sort
       parameters:
-        - { in: query, name: search, schema: { type: string } }
-        - { in: query, name: author, schema: { type: string } }
-        - { in: query, name: category, schema: { type: string } }
+        - { in: query, name: search, schema: { type: string, maxLength: 200 } }
+        - { in: query, name: author, schema: { type: string, maxLength: 160 } }
+        - { in: query, name: category, schema: { type: string, maxLength: 80 } }
         - { in: query, name: featured, schema: { type: boolean } }
         - { in: query, name: minPrice, schema: { type: number, minimum: 0 } }
         - { in: query, name: maxPrice, schema: { type: number, minimum: 0 } }
         - { in: query, name: sort, schema: { type: string, enum: [newest, oldest, price_asc, price_desc, title] } }
-        - { in: query, name: page, schema: { type: integer, minimum: 1 } }
-        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
       responses:
-        '200': { description: Paginated book list }
-        '400': { description: Invalid filters, including minPrice greater than maxPrice }
+        '200': { description: Book array plus pagination metadata }
+        '400': { description: Invalid filters }
     post:
-      summary: Create book
+      summary: Create book (admin)
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/BookCreateInput' }
+        content: { application/json: { schema: { allOf: [{ $ref: '#/components/schemas/BookInput' }], required: [title, slug, author, price] } } }
       responses:
         '201': { description: Created }
-        '403': { description: Admin role required }
+        '400': { description: Validation or invalid ISBN }
+        '403': { description: Admin required }
+        '409': { description: Duplicate slug or ISBN }
   /books/slug/{slug}:
     get:
       summary: Get book by slug
-      parameters:
-        - { in: path, name: slug, required: true, schema: { type: string } }
+      parameters: [{ in: path, name: slug, required: true, schema: { type: string } }]
       responses:
         '200': { description: Book }
         '404': { description: Not found }
   /books/{id}:
     get:
       summary: Get book by id
-      parameters:
-        - { in: path, name: id, required: true, schema: { type: string } }
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
       responses:
         '200': { description: Book }
         '404': { description: Not found }
     patch:
-      summary: Update book
+      summary: Partially update book (admin)
       security: [{ bearerAuth: [] }]
-      parameters:
-        - { in: path, name: id, required: true, schema: { type: string } }
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
       requestBody:
         required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/BookPatchInput' }
+        content: { application/json: { schema: { $ref: '#/components/schemas/BookInput' } } }
       responses:
         '200': { description: Updated }
-        '403': { description: Admin role required }
-        '404': { description: Not found }
+        '400': { description: Validation error }
+        '403': { description: Admin required }
+        '409': { description: Duplicate slug or ISBN }
     delete:
-      summary: Delete book and clean dependent cart, wishlist and review references
+      summary: Delete book and clean cart/wishlist/review references (admin)
       security: [{ bearerAuth: [] }]
-      parameters:
-        - { in: path, name: id, required: true, schema: { type: string } }
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
       responses:
         '204': { description: Deleted }
-        '403': { description: Admin role required }
+        '403': { description: Admin required }
   /cart:
     get:
-      summary: Current cart
+      summary: Persistent cart
       security: [{ bearerAuth: [] }]
-      responses:
-        '200': { description: Cart }
+      responses: { '200': { description: Cart and subtotal } }
     delete:
       summary: Clear cart
       security: [{ bearerAuth: [] }]
@@ -253,129 +215,123 @@ paths:
         '409': { description: Cart locked during checkout }
   /cart/items:
     post:
-      summary: Add cart item
+      summary: Add item with stock and concurrency validation
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/CartAddInput' }
+        content: { application/json: { schema: { $ref: '#/components/schemas/CartAddInput' } } }
       responses:
         '201': { description: Updated cart }
-        '409': { description: Cart locked or insufficient stock }
+        '409': { description: Insufficient stock, lock, or write conflict }
   /cart/items/{bookId}:
     patch:
-      summary: Change cart quantity
+      summary: Update quantity
       security: [{ bearerAuth: [] }]
-      parameters:
-        - { in: path, name: bookId, required: true, schema: { type: string } }
+      parameters: [{ in: path, name: bookId, required: true, schema: { type: string } }]
       requestBody:
         required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/CartQuantityInput' }
+        content: { application/json: { schema: { $ref: '#/components/schemas/CartQuantityInput' } } }
       responses:
         '200': { description: Updated cart }
-        '409': { description: Cart locked or insufficient stock }
+        '409': { description: Insufficient stock, lock, or write conflict }
     delete:
-      summary: Remove cart item
+      summary: Remove item
       security: [{ bearerAuth: [] }]
-      parameters:
-        - { in: path, name: bookId, required: true, schema: { type: string } }
+      parameters: [{ in: path, name: bookId, required: true, schema: { type: string } }]
       responses:
         '200': { description: Updated cart }
-        '409': { description: Cart locked during checkout }
+        '409': { description: Cart locked or write conflict }
   /wishlist:
     get:
       summary: Current wishlist
       security: [{ bearerAuth: [] }]
-      responses:
-        '200': { description: Wishlist }
+      responses: { '200': { description: Wishlist } }
   /wishlist/{bookId}:
     post:
-      summary: Save a book
+      summary: Add book without duplicates
       security: [{ bearerAuth: [] }]
-      parameters:
-        - { in: path, name: bookId, required: true, schema: { type: string } }
-      responses:
-        '201': { description: Saved }
+      parameters: [{ in: path, name: bookId, required: true, schema: { type: string } }]
+      responses: { '201': { description: Saved } }
     delete:
       summary: Remove saved book
       security: [{ bearerAuth: [] }]
-      parameters:
-        - { in: path, name: bookId, required: true, schema: { type: string } }
-      responses:
-        '200': { description: Removed }
+      parameters: [{ in: path, name: bookId, required: true, schema: { type: string } }]
+      responses: { '200': { description: Removed } }
   /reviews/book/{bookId}:
     get:
-      summary: Reviews for book
+      summary: Paginated reviews plus aggregate rating/count
       parameters:
         - { in: path, name: bookId, required: true, schema: { type: string } }
-      responses:
-        '200': { description: Reviews and rating summary }
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses: { '200': { description: Reviews with aggregate and pagination metadata } }
     put:
-      summary: Create or update own review
+      summary: Create or update own single review
       security: [{ bearerAuth: [] }]
-      parameters:
-        - { in: path, name: bookId, required: true, schema: { type: string } }
+      parameters: [{ in: path, name: bookId, required: true, schema: { type: string } }]
       requestBody:
         required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/ReviewInput' }
-      responses:
-        '201': { description: Review saved }
+        content: { application/json: { schema: { $ref: '#/components/schemas/ReviewInput' } } }
+      responses: { '201': { description: Review saved } }
   /reviews/{id}:
     delete:
       summary: Delete own review or any review as admin
       security: [{ bearerAuth: [] }]
-      parameters:
-        - { in: path, name: id, required: true, schema: { type: string } }
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
       responses:
         '204': { description: Deleted }
+        '403': { description: Not owner/admin }
   /orders:
     get:
-      summary: Current user's orders
+      summary: Current user's order history
       security: [{ bearerAuth: [] }]
-      responses:
-        '200': { description: Orders }
+      responses: { '200': { description: Orders } }
     post:
       summary: Checkout current cart
+      description: Locks the cart, validates and atomically decrements stock. Uses MongoDB transactions on replica-set/sharded deployments and compensation fallback on standalone MongoDB.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/OrderInput' }
+        content: { application/json: { schema: { $ref: '#/components/schemas/OrderInput' } } }
       responses:
         '201': { description: Order created }
-        '400': { description: Cart empty }
-        '409': { description: Checkout already running or stock changed }
+        '400': { description: Empty cart }
+        '409': { description: Checkout in progress, unavailable item, or stock changed }
+  /orders/{id}:
+    get:
+      summary: Current user's order detail
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Owned order }
+        '404': { description: Not found or not owned by current user }
   /orders/admin/all:
     get:
-      summary: List all orders
-      security: [{ bearerAuth: [] }]
-      responses:
-        '200': { description: Admin order list }
-        '403': { description: Admin role required }
-  /orders/admin/{id}/status:
-    patch:
-      summary: Transition order status
+      summary: Paginated/searchable admin order queue
       security: [{ bearerAuth: [] }]
       parameters:
-        - { in: path, name: id, required: true, schema: { type: string } }
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+        - { in: query, name: status, schema: { type: string, enum: [pending, confirmed, shipped, completed, cancelled] } }
+        - { in: query, name: search, description: Order id, reader name/email, item title or shipping address., schema: { type: string, maxLength: 120 } }
+      responses:
+        '200': { description: Orders plus pagination metadata }
+        '403': { description: Admin required }
+  /orders/admin/{id}/status:
+    patch:
+      summary: Apply a guarded order state transition
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
       requestBody:
         required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/OrderStatusInput' }
+        content: { application/json: { schema: { $ref: '#/components/schemas/OrderStatusInput' } } }
       responses:
         '200': { description: Updated order }
-        '409': { description: Invalid or concurrent transition }
+        '409': { description: Invalid/concurrent transition or inventory restore failure }
   /admin/stats:
     get:
-      summary: Admin dashboard metrics
+      summary: Dashboard statistics and recent orders
       security: [{ bearerAuth: [] }]
       responses:
-        '200': { description: Dashboard metrics }
-        '403': { description: Admin role required }
+        '200': { description: Books/users/orders/reviews/low-stock/order-value/recent-orders }
+        '403': { description: Admin required }

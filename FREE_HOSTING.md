@@ -1,46 +1,51 @@
 # BookHaven — $0 deployment profile
 
-BookHaven is designed to run with no mandatory monthly hosting bill for a demo, portfolio, or small manually fulfilled store.
+BookHaven can run with no mandatory monthly hosting bill for a demo, portfolio, or small manually fulfilled store.
 
 ## Free stack
 
-- **Git + source control:** GitHub Free
-- **Verification:** Render Free build pipeline and GitHub Actions when enabled
+- **Source + CI:** GitHub Free + GitHub Actions
 - **Web:** one Render Free Web Service
 - **Database:** MongoDB Atlas M0 Free
-- **TLS + subdomain:** Render-managed `*.onrender.com`
+- **TLS/subdomain:** Render-managed `*.onrender.com`
 - **Local development:** Docker Compose + MongoDB container
 
-## Current Render service
-
-The repository is configured for:
+## Repository deployment profile
 
 ```text
-https://bookbookhaven-free.onrender.com
+GitHub: https://github.com/rahman-997/bookbookhaven
+Branch: main
+Public URL: https://bookbookhaven-free.onrender.com
+Health: https://bookbookhaven-free.onrender.com/api/health
 ```
 
-The service tracks `main` from:
+`render.yaml` enables automatic deployment and uses:
 
 ```text
-https://github.com/rahman-997/bookbookhaven
+buildCommand: npm run build:free
+startCommand: npm run start:free
+healthCheckPath: /api/health
 ```
 
-## Why one Render service?
+Do not manually trigger another deploy after a normal `main` push when Render auto-deploy is enabled; the push is already the deployment trigger.
 
-`npm run start:free` starts two processes inside one free web service when MongoDB is configured:
+## One-service architecture
+
+The free profile intentionally keeps the architecture portable while consuming one Render service:
 
 1. Next.js listens on public `$PORT`.
-2. Express listens on `127.0.0.1:3001` only.
+2. Express listens on `127.0.0.1:${BACKEND_PORT}` only.
 3. Next.js calls Express through `INTERNAL_API_URL=http://127.0.0.1:3001/api/v1`.
-4. Express connects to MongoDB Atlas through `MONGO_URI`.
+4. Express connects to MongoDB through `MONGO_URI`.
+5. Browser authentication stays in an HttpOnly cookie; Next.js BFF handlers translate it to a server-side Bearer header.
 
-The browser never needs the internal Express hostname or JWT. Authentication is translated by the Next.js BFF from an HttpOnly cookie to a Bearer token.
+Render is not imported by application code and can be replaced by another Node.js host.
 
-## Safe setup mode
+## MongoDB behavior
 
-If `MONGO_URI` is missing or equals `PENDING_ATLAS`, `npm run start:free` deliberately starts a small setup page instead of crashing. `/api/health` reports `setup-required` while the database is unconfigured.
+Atlas M0 uses a replica-set deployment, so BookHaven automatically uses MongoDB transactions for checkout and cancellation. Local standalone MongoDB is also supported: the service detects that transactions are unavailable and switches to its compensation path rather than failing startup or requiring replica-set configuration.
 
-After an Atlas M0 URI is added to Render, redeploy the same service. The normal Next.js + Express runtime starts automatically.
+This keeps free/local development simple while giving Atlas stronger atomicity.
 
 ## Required secrets
 
@@ -51,7 +56,7 @@ Never commit these values:
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 
-Recommended public/runtime values:
+Recommended non-secret production values:
 
 ```text
 NODE_VERSION=24
@@ -60,15 +65,16 @@ NEXT_PUBLIC_SITE_URL=https://bookbookhaven-free.onrender.com
 INTERNAL_API_URL=http://127.0.0.1:3001/api/v1
 BACKEND_PORT=3001
 CORS_ORIGIN=https://bookbookhaven-free.onrender.com
+JWT_EXPIRES_IN=7d
 ```
 
-Keep `AUTO_SEED=false` until Atlas and the intended admin credentials are configured. Then it can be enabled for the idempotent demo seed.
+Production env validation refuses default/short JWT secrets, weak/default admin passwords, localhost MongoDB URIs and wildcard credentialed CORS.
 
-## MongoDB Atlas M0
+## Atlas M0
 
-Create an M0 Free cluster and a dedicated database user. Prefer Render outbound ranges in Atlas Network Access when available. If `0.0.0.0/0` is temporarily necessary, use a strong unique database password and least-privilege database credentials.
+Create an M0 Free cluster and a dedicated database user. Use least-privilege credentials and a strong unique database password. Prefer restricted network access when practical.
 
-Example URI shape:
+URI shape:
 
 ```text
 mongodb+srv://<user>:<password>@<cluster-host>/bookhaven?retryWrites=true&w=majority
@@ -76,7 +82,7 @@ mongodb+srv://<user>:<password>@<cluster-host>/bookhaven?retryWrites=true&w=majo
 
 ## Quality gate
 
-The production Render build is intentionally strict. `npm run build:free` performs:
+`npm run build:free` is the production gate:
 
 ```text
 backend install
@@ -85,37 +91,27 @@ backend install
 → backend production build
 → frontend install
 → frontend typecheck
-→ Next.js production build
+→ frontend production build
 ```
 
-Any failure stops deployment.
+Any failing step stops the build command and therefore blocks deployment.
 
-You can run the same project-level verification locally with:
+GitHub Actions executes equivalent checks on every push and pull request with read-only repository permission and workflow concurrency cancellation.
+
+## Local verification
 
 ```bash
-npm run verify
+npm run typecheck
+npm test
+npm run build
 ```
 
-## Render commands
-
-Build:
+Or run the complete free-hosting gate:
 
 ```bash
 npm run build:free
 ```
 
-Start:
-
-```bash
-npm run start:free
-```
-
-Health:
-
-```text
-/api/health
-```
-
 ## Free-tier tradeoffs
 
-Free web services may sleep while idle and cold-start on the next request. Atlas M0 has storage and performance limits. This profile is suitable for demos, learning, portfolios, prototypes, and early/small stores rather than an SLA-backed high-traffic production shop.
+Render Free services may sleep while idle and cold-start on the next request. Atlas M0 has capacity limits. This profile is appropriate for a portfolio, demo, prototype, learning project, and small manually fulfilled workload—not an SLA-backed high-traffic shop.

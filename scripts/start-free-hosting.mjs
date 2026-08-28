@@ -1,13 +1,22 @@
 import { spawn } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import http from 'node:http';
 import { createRequire } from 'node:module';
+import { dirname } from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 
 const publicPort = process.env.PORT || '10000';
 const backendPort = process.env.BACKEND_PORT || '3001';
 const nodeEnv = process.env.NODE_ENV || 'production';
 const internalApiUrl = process.env.INTERNAL_API_URL || `http://127.0.0.1:${backendPort}/api/v1`;
 const configuredMongoUri = String(process.env.MONGO_URI || '').trim();
+const standaloneRoot = fileURLToPath(new URL('../frontend/.next/standalone/', import.meta.url));
+const standaloneServer = fileURLToPath(new URL('../frontend/.next/standalone/server.js', import.meta.url));
+const staticSource = fileURLToPath(new URL('../frontend/.next/static/', import.meta.url));
+const publicSource = fileURLToPath(new URL('../frontend/public/', import.meta.url));
+const staticTarget = fileURLToPath(new URL('../frontend/.next/standalone/.next/static/', import.meta.url));
+const publicTarget = fileURLToPath(new URL('../frontend/.next/standalone/public/', import.meta.url));
 
 const children = new Set();
 let shuttingDown = false;
@@ -31,6 +40,39 @@ function waitForExit(child, label) {
       if (code === 0) resolve();
       else reject(new Error(`${label} exited with code ${code ?? 'null'}${signal ? ` (${signal})` : ''}`));
     });
+  });
+}
+
+function mirrorDirectory(source, target) {
+  if (!existsSync(source)) return;
+  rmSync(target, { recursive: true, force: true });
+  mkdirSync(dirname(target), { recursive: true });
+  cpSync(source, target, { recursive: true });
+}
+
+function startFrontend() {
+  if (existsSync(standaloneServer)) {
+    mirrorDirectory(staticSource, staticTarget);
+    mirrorDirectory(publicSource, publicTarget);
+    console.log('[bookhaven] starting Next.js standalone runtime');
+    return run(process.execPath, ['server.js'], {
+      cwd: standaloneRoot,
+      env: {
+        NODE_ENV: nodeEnv,
+        NEXT_TELEMETRY_DISABLED: '1',
+        INTERNAL_API_URL: internalApiUrl,
+        PORT: publicPort,
+        HOSTNAME: '0.0.0.0'
+      }
+    });
+  }
+
+  console.warn('[bookhaven] standalone build not found; falling back to next start');
+  return run('npm', ['start', '--prefix', 'frontend', '--', '-p', publicPort, '-H', '0.0.0.0'], {
+    env: {
+      NODE_ENV: nodeEnv,
+      INTERNAL_API_URL: internalApiUrl
+    }
   });
 }
 
@@ -105,12 +147,7 @@ if (await ensureMongoUri()) {
       }
     });
 
-    const frontend = run('npm', ['start', '--prefix', 'frontend', '--', '-p', publicPort, '-H', '0.0.0.0'], {
-      env: {
-        NODE_ENV: nodeEnv,
-        INTERNAL_API_URL: internalApiUrl
-      }
-    });
+    const frontend = startFrontend();
 
     const fail = (name) => (code, signal) => {
       if (shuttingDown) return;

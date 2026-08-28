@@ -41,3 +41,7 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+      - name: Verify free-hosting runtime
+        run: |
+          node --check scripts/start-free-hosting.mjs
+          test -f frontend/.next/standalone/server.js

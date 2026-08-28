@@ -49,11 +49,11 @@ export async function listAll(input: AdminListInput) {
   if (input.status) filter.status = input.status;
 
   if (input.search) {
-    const regex = new RegExp(escapeRegex(input.search), 'i');
-    const users = await User.find({ $or: [{ name: regex }, { email: regex }] }).select('_id').limit(100).lean();
+    const literalSearch = { $regex: escapeRegex(input.search), $options: 'i' };
+    const users = await User.find({ $or: [{ name: literalSearch }, { email: literalSearch }] }).select('_id').limit(100).lean();
     const clauses: Record<string, unknown>[] = [
-      { shippingAddress: regex },
-      { 'items.title': regex },
+      { shippingAddress: literalSearch },
+      { 'items.title': literalSearch },
       { user: { $in: users.map((user) => user._id) } }
     ];
     if (mongoose.isValidObjectId(input.search)) clauses.push({ _id: input.search });

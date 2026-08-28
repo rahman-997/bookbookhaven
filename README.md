@@ -4,92 +4,93 @@
 
 ![BookHaven product preview](https://raw.githubusercontent.com/rahman-997/portfolio/main/public/projects/bookhaven-cover.jpg)
 
-**A production-oriented full-stack bookstore built around real commerce workflows, not only catalog CRUD.** BookHaven combines a Next.js 16 storefront with an Express 5 API, TypeScript, MongoDB/Mongoose, Zod validation, JWT authentication, role-based authorization, checkout/order workflows, inventory handling, operational admin tools, and automated API verification.
+**BookHaven is a production-oriented full-stack bookstore built around real commerce workflows, concurrency-safe inventory, private browser sessions, scalable catalog/fulfillment operations, and a polished portfolio-grade storefront.**
 
 **Live:** [bookbookhaven-free.onrender.com](https://bookbookhaven-free.onrender.com) · **Case study:** [Portfolio](https://abdulrahman-hajar-dev.netlify.app/work/bookhaven/) · **Engineer:** [Abdulrahman Hajar](https://github.com/rahman-997)
 
-> The zero-cost portfolio deployment can use an embedded ephemeral MongoDB when Atlas is not configured. Demo data can reset after a restart. Configure MongoDB Atlas M0 through `MONGO_URI` for durable users, carts, reviews, inventory, and orders.
-
----
+> Use MongoDB Atlas M0 through `MONGO_URI` for durable production/demo data. The free hosting launcher can also use a disposable embedded MongoDB for portfolio previews; that fallback can reset after sleep, restart, or redeploy.
 
 ## Engineering snapshot
 
 | Area | Implementation |
 | --- | --- |
-| Frontend | Next.js 16 · React 19 · TypeScript |
-| Backend | Express 5 · TypeScript · Zod 4 |
-| Data | MongoDB · Mongoose · indexes · optimistic concurrency |
-| Auth | JWT + HttpOnly BFF session + customer/admin RBAC |
-| Commerce | Cart · wishlist · reviews · checkout · order detail · inventory |
-| Operations | Admin dashboard · order queue · low-stock visibility |
-| Security | Helmet · CORS · request limits · rate limiting · same-origin BFF guard · production secret checks |
-| Verification | Typecheck · Jest/Supertest · concurrency/integrity tests · frontend/backend builds · GitHub Actions CI |
-| Deployment | Single Render Free service + MongoDB Atlas M0 or embedded demo DB |
+| Frontend | Next.js 16 App Router · React 19 · TypeScript · Tailwind CSS 4 |
+| Backend | Express 5 · strict TypeScript · Zod 4 |
+| Data | MongoDB · Mongoose · indexes · optimistic concurrency · adaptive transactions |
+| Auth | JWT · bcrypt · HttpOnly BFF session · customer/admin RBAC |
+| Commerce | Cart · wishlist · paginated reviews · checkout · orders · inventory |
+| Operations | Paginated/searchable admin catalog · fulfillment queue · metrics · low-stock visibility |
+| Security | Helmet · explicit credentialed CORS · rate limits · body limits · same-origin BFF guard · production secret checks |
+| Verification | Jest/Supertest · replica-set transaction test · typecheck · production builds · GitHub Actions |
+| SEO | Dynamic book metadata · canonical URLs · OpenGraph/Twitter · JSON-LD · paginated sitemap |
+| Deployment | Docker Compose · Render Free standalone Next.js runtime · MongoDB Atlas M0 |
 
-## System architecture
+## Architecture
 
 ```text
 Browser
-  │
-  ▼
+  ↓ HTTPS
 Next.js App Router
   ├─ public Server Components
-  └─ BFF Route Handlers
-       │ HttpOnly cookie → Bearer JWT
-       ▼
+  ├─ SEO metadata / sitemap
+  └─ same-origin BFF Route Handlers
+       ↓ HttpOnly JWT → Authorization header
 Express 5 API
-  ├─ Zod validation
-  ├─ authentication / RBAC
+  ├─ validation / auth / RBAC
   ├─ controllers
-  ├─ services
-  └─ Mongoose models
-       │
-       ▼
-MongoDB
+  └─ services
+       ↓
+Mongoose / MongoDB
+  ├─ Atlas/replica set → transactions
+  └─ standalone/local → compensation fallback
 ```
 
-The architecture keeps browser-facing session handling in Next.js while the API owns business rules, authorization, validation, and persistence.
+The browser does not need direct access to the API JWT. Business logic remains in Express services, while Next.js owns the browser-facing session boundary and presentation layer. Render is only a deployment profile; application code is provider-neutral.
 
-See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the deeper design.
+See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the detailed consistency and security model.
 
-## Product capabilities
+## Storefront capabilities
 
-### Storefront
+- Responsive mobile-first catalog and editorial discovery
+- Server-backed pagination, search, category/author/price filters, featured filtering and sorting
+- SEO-rich book detail pages with Schema.org structured data
+- Related-book recommendations
+- Live stock visibility
+- Persistent cart with concurrency-safe mutations
+- Persistent wishlist with duplicate prevention
+- Paginated ratings/reviews with aggregate rating metadata
+- Cash-on-delivery and manual-payment checkout
+- Customer order history, status filters, pagination and owned order-detail pages
 
-- Responsive catalog and editorial discovery
-- Search, category filtering, price filtering, and sorting
-- SEO-aware book detail pages
-- Stock visibility
-- Persistent cart
-- Persistent wishlist
-- Reader ratings and reviews
-- Checkout without requiring a paid payment provider
-- Customer order history and owned order-detail pages
+## Admin capabilities
 
-### Admin operations
-
-- Admin-only book creation, editing, deletion, stock, and featured management
-- Book, user, order, and review counts
-- Low-stock metric
-- Aggregate order value
-- Order queue and guarded status transitions
+- Server-protected admin RBAC
+- Create, edit and delete books
+- Stock management and featured toggle
+- Paginated/searchable catalog management
+- Paginated/searchable/filterable order queue
+- Guarded order-state transitions
+- Dashboard metrics for books, users, orders, reviews, low stock and order value
 - Inventory restoration after valid cancellation
-- Protection against deleting inventory still required by active orders
+- Protection against deleting books required by active orders
 
 ## Commerce reliability
 
-The project includes safeguards so commerce behavior is not only UI state:
+BookHaven treats commerce state as database state—not browser state:
 
-- Cart mutations use optimistic concurrency and bounded retries so concurrent requests do not silently overwrite one another.
-- Checkout acquires a versioned cart lock, preventing stale cart writes from overwriting an active checkout.
-- Duplicate checkout requests cannot create duplicate orders from the same cart.
-- Failed checkout compensates order, inventory, cart, and lock state.
-- Atomic order-status transitions prevent duplicate cancellation restocks.
-- Books referenced by `pending` or `confirmed` orders cannot be deleted before fulfillment/cancellation is complete.
-- Historical orders preserve title/price snapshots even after later catalog changes.
-- Deleting an eligible book cleans dependent cart, wishlist, and review references.
+- Persistent MongoDB cart with Mongoose optimistic concurrency and bounded retry handling
+- Versioned checkout lock prevents stale cart writes from overwriting an active checkout
+- Conditional stock decrements prevent overselling across concurrent customers
+- Duplicate checkout requests compete for the same cart lock
+- Atlas/replica-set deployments automatically use MongoDB transactions for checkout and cancellation
+- Standalone/local MongoDB automatically uses a compensation fallback instead of requiring a replica set
+- Failed fallback checkout restores successfully decremented inventory, removes partial orders, restores surviving cart references and releases the lock
+- Compare-and-set order transitions prevent duplicate lifecycle mutations
+- Cancellation restores inventory once; transactional deployments restore stock/status atomically
+- Order line items preserve title and unit-price snapshots
+- Active orders block destructive catalog deletion needed for later cancellation
 
-## API design
+## API surface
 
 ### Authentication
 
@@ -99,7 +100,7 @@ POST /api/v1/auth/login
 GET  /api/v1/auth/me
 ```
 
-### Catalog
+### Books
 
 ```text
 GET    /api/v1/books
@@ -110,7 +111,9 @@ PATCH  /api/v1/books/:id        admin
 DELETE /api/v1/books/:id        admin
 ```
 
-### Cart and wishlist
+Books support bounded pagination, text search, author/category/featured filters, min/max price and sorting. Slug and normalized ISBN are unique; ISBN-10/ISBN-13 checksums are validated.
+
+### Cart / wishlist
 
 ```text
 GET    /api/v1/cart
@@ -124,49 +127,39 @@ POST   /api/v1/wishlist/:bookId
 DELETE /api/v1/wishlist/:bookId
 ```
 
-### Reviews, orders, admin
+### Reviews / orders / admin
 
 ```text
-GET    /api/v1/reviews/book/:bookId
+GET    /api/v1/reviews/book/:bookId?page=1&limit=20
 PUT    /api/v1/reviews/book/:bookId
 DELETE /api/v1/reviews/:id
 
-GET    /api/v1/orders
+GET    /api/v1/orders?page=1&limit=20&status=pending
 GET    /api/v1/orders/:id
 POST   /api/v1/orders
-GET    /api/v1/orders/admin/all
+GET    /api/v1/orders/admin/all?page=1&limit=50&status=pending&search=...
 PATCH  /api/v1/orders/admin/:id/status
 
 GET    /api/v1/admin/stats
 GET    /api/v1/health
 ```
 
-## Backend quality controls
+The authoritative REST contract is [`docs/openapi.yaml`](./docs/openapi.yaml) using OpenAPI 3.1.
 
-- Express 5 REST API
-- TypeScript strict mode
-- Zod request validation
-- Centralized error handling
-- Mongoose indexes, persistence models, and optimistic cart versioning
-- JWT authentication and role authorization
-- Request IDs and structured access logging
-- Helmet and explicit CORS handling
-- Request-size limits and rate limiting
-- Health/readiness route
-- OpenAPI 3.1 contract
-- Jest/Supertest API tests including concurrency and ownership cases
-- Safer image and backend proxy behavior
+## Security controls
 
-## UX hardening
-
-The “Midnight Library” interface includes:
-
-- responsive desktop/mobile product flows
-- mobile navigation dock
-- loading, empty, and error states
-- accessible focus handling
-- reduced-motion support
-- redesigned cart, checkout, account, orders, order detail, and admin flows
+- Production secret/environment validation
+- bcrypt password hashing
+- JWT authentication and API-side RBAC
+- HttpOnly, Secure-in-production, SameSite session cookie at the Next.js BFF boundary
+- Same-origin mutation protection
+- Helmet headers
+- Explicit credentialed CORS configuration
+- Rate limiting, including tighter auth limits
+- Request-body size limits
+- Zod body/query/path validation
+- Safe centralized error responses with request IDs
+- Structured access logging
 
 ## Local development
 
@@ -176,10 +169,10 @@ The “Midnight Library” interface includes:
 cp .env.example .env
 ```
 
-Set at least:
+Configure at least:
 
 ```env
-JWT_SECRET=use-a-long-random-secret
+JWT_SECRET=use-a-long-random-secret-at-least-32-characters
 ADMIN_EMAIL=admin@example.com
 ADMIN_PASSWORD=use-a-strong-unique-password
 ```
@@ -198,7 +191,7 @@ Seed demo data:
 docker compose exec backend npm run seed
 ```
 
-### Separate frontend/backend development
+### Separate processes
 
 Backend:
 
@@ -219,27 +212,35 @@ INTERNAL_API_URL=http://localhost:3001/api/v1 npm run dev
 
 ## Verification
 
+Standard project verification:
+
 ```bash
 npm run typecheck
 npm test
 npm run build
 ```
 
-CI runs backend typecheck/tests/build and frontend typecheck/build on pushes and pull requests.
+Production/free-hosting gate:
 
-## Zero-cost deployment profile
+```bash
+npm run build:free
+```
+
+`build:free` performs backend install → typecheck → tests → build → frontend install → typecheck → build. Any failure blocks deployment. GitHub Actions performs equivalent checks for pushes and pull requests and verifies the standalone frontend artifact.
+
+## Zero-cost deployment
 
 See [`FREE_HOSTING.md`](./FREE_HOSTING.md).
 
 ```text
 GitHub Free
-   ↓
+   ↓ auto deploy from main
 Render Free Web Service
-   ├─ Next.js public process
-   └─ Express internal process on 127.0.0.1
+   ├─ Next.js standalone public runtime
+   └─ Express internal runtime on 127.0.0.1
    ↓
 MongoDB Atlas M0 Free
-or embedded MongoDB for ephemeral portfolio previews
+or disposable embedded MongoDB for portfolio preview
 ```
 
 Build:
@@ -254,37 +255,20 @@ Start:
 npm run start:free
 ```
 
-The default checkout supports `cash_on_delivery` and `manual` settlement, so no paid transaction provider is required for the demo architecture.
-
-## Key environment variables
+## Environment variables
 
 | Variable | Purpose |
 | --- | --- |
-| `MONGO_URI` | Durable MongoDB connection string; absent means disposable embedded demo mode |
+| `MONGO_URI` | Durable MongoDB connection string; absent/setup sentinel enables disposable demo mode |
 | `JWT_SECRET` | JWT signing secret |
-| `JWT_EXPIRES_IN` | Token lifetime |
-| `CORS_ORIGIN` | Allowed frontend origin(s) |
-| `ADMIN_EMAIL` | Seeded admin account |
-| `ADMIN_PASSWORD` | Seeded admin password |
-| `INTERNAL_API_URL` | Next.js → Express internal URL |
+| `JWT_EXPIRES_IN` | JWT/session lifetime |
+| `CORS_ORIGIN` | Explicit allowed frontend origin(s) |
+| `ADMIN_EMAIL` | Seed/admin account email |
+| `ADMIN_PASSWORD` | Seed/admin account password |
+| `INTERNAL_API_URL` | Next.js → private Express URL |
 | `NEXT_PUBLIC_SITE_URL` | Canonical public site URL |
-| `AUTO_SEED` | Idempotent seed in combined free-hosting mode |
-| `BACKEND_PORT` | Internal Express port in combined hosting |
-
-## Engineering evidence
-
-- Real authentication and authorization boundaries
-- Persistent commerce state when backed by Atlas/local MongoDB
-- Optimistic cart concurrency control
-- Concurrency-aware checkout behavior
-- Inventory compensation and cancellation guards
-- Active-order inventory deletion protection
-- Admin operational workflows
-- Centralized validation and errors
-- OpenAPI contract
-- API test coverage
-- Production secret/CORS hardening
-- Free deployment architecture with durable or ephemeral data modes
+| `AUTO_SEED` | Optional idempotent demo seed in combined hosting |
+| `BACKEND_PORT` | Private Express port in combined hosting |
 
 ## Author
 

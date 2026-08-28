@@ -336,10 +336,15 @@ paths:
         '204': { description: Deleted }
   /orders:
     get:
-      summary: Current user's orders
+      summary: Current user's paginated orders
       security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { in: query, name: status, schema: { type: string, enum: [pending, confirmed, shipped, completed, cancelled] } }
       responses:
-        '200': { description: Orders }
+        '200': { description: Orders with pagination metadata }
+        '400': { description: Invalid pagination or status filter }
     post:
       summary: Checkout current cart
       security: [{ bearerAuth: [] }]
@@ -363,10 +368,16 @@ paths:
         '404': { description: Order not found or not owned by current user }
   /orders/admin/all:
     get:
-      summary: List all orders
+      summary: Search, filter and paginate all orders
       security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+        - { in: query, name: status, schema: { type: string, enum: [pending, confirmed, shipped, completed, cancelled] } }
+        - { in: query, name: search, description: Matches order ID, customer name/email, shipping address or book title, schema: { type: string, maxLength: 120 } }
       responses:
-        '200': { description: Admin order list }
+        '200': { description: Admin order list with pagination metadata }
+        '400': { description: Invalid query parameters }
         '403': { description: Admin role required }
   /orders/admin/{id}/status:
     patch:

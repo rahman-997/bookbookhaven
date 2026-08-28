@@ -20,9 +20,9 @@ export function isCrossSiteMutation(request: NextRequest) {
   if (configured) allowedOrigins.add(configured);
 
   const origin = request.headers.get('origin');
-  if (origin && !allowedOrigins.has(origin)) return true;
+  if (origin) return !allowedOrigins.has(origin);
 
-  return request.headers.get('sec-fetch-site') === 'cross-site';
+  return request.headers.get('sec-fetch-site') !== 'same-origin';
 }
 
 export function sessionMaxAgeSeconds(value: unknown) {

@@ -19,8 +19,18 @@ beforeAll(async () => {
   await mkdir(mongoDownloadDir, { recursive: true });
   mongo = await MongoMemoryServer.create({ binary: { downloadDir: mongoDownloadDir } });
   await mongoose.connect(mongo.getUri());
+  await Promise.all([User.syncIndexes(), Book.syncIndexes(), Cart.syncIndexes(), Order.syncIndexes(), Review.syncIndexes(), Wishlist.syncIndexes()]);
 });
-afterEach(async () => { await mongoose.connection.db?.dropDatabase(); });
+afterEach(async () => {
+  await Promise.all([
+    User.deleteMany({}),
+    Book.deleteMany({}),
+    Cart.deleteMany({}),
+    Order.deleteMany({}),
+    Review.deleteMany({}),
+    Wishlist.deleteMany({})
+  ]);
+});
 afterAll(async () => { await mongoose.disconnect(); await mongo?.stop(); });
 
 async function register(email = 'test@example.com') {

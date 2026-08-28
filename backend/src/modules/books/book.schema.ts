@@ -1,13 +1,29 @@
 import { z } from 'zod';
 import { objectIdSchema } from '../../utils/object-id';
 
+function normalizeIsbn(value: string) {
+  return value.replace(/[\s-]/g, '').toUpperCase();
+}
+
+function isValidIsbn(value: string) {
+  if (/^\d{13}$/.test(value)) {
+    const total = value.slice(0, 12).split('').reduce((sum, digit, index) => sum + Number(digit) * (index % 2 === 0 ? 1 : 3), 0);
+    return (10 - (total % 10)) % 10 === Number(value[12]);
+  }
+  if (/^\d{9}[\dX]$/.test(value)) {
+    const total = value.split('').reduce((sum, digit, index) => sum + (digit === 'X' ? 10 : Number(digit)) * (10 - index), 0);
+    return total % 11 === 0;
+  }
+  return false;
+}
+
 const bookFields = {
   title: z.string().trim().min(1).max(200),
   slug: z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   author: z.string().trim().min(1).max(160),
   description: z.string().max(5000).default(''),
   coverUrl: z.string().url().refine((value) => { try { return new URL(value).protocol === 'https:'; } catch { return false; } }, { message: 'Cover URL must use HTTPS' }).optional(),
-  isbn: z.string().trim().min(10).max(32).optional(),
+  isbn: z.string().trim().transform(normalizeIsbn).refine(isValidIsbn, { message: 'ISBN must be a valid ISBN-10 or ISBN-13' }).optional(),
   price: z.number().finite().min(0),
   stock: z.number().int().min(0).default(0),
   categories: z.array(z.string().trim().min(1).max(80)).max(20).default([]),

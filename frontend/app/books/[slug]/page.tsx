@@ -17,13 +17,12 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const book = await getBookBySlug(slug);
   if (!book) return { title: 'Book not found', robots: { index: false, follow: false } };
   const description = book.description.slice(0, 160) || `${book.title} by ${book.author} at BookHaven.`;
-  const socialImage = `/books/${book.slug}/opengraph-image`;
   return {
     title: book.title,
     description,
     alternates: { canonical: `/books/${book.slug}` },
-    openGraph: { title: book.title, description, type: 'book', url: `/books/${book.slug}`, images: [{ url: socialImage, width: 1200, height: 630, alt: `${book.title} by ${book.author}` }] },
-    twitter: { card: 'summary_large_image', title: book.title, description, images: [socialImage] }
+    openGraph: { title: book.title, description, type: 'book', url: `/books/${book.slug}` },
+    twitter: { card: 'summary_large_image', title: book.title, description }
   };
 }
 
@@ -33,14 +32,13 @@ export default async function BookPage({ params }: { params: Promise<{ slug: str
   if (!book) notFound();
   const [reviews, related] = await Promise.all([getReviews(book._id), getRelatedBooks(book)]);
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
-  const productImage = `${siteUrl}/books/${book.slug}/opengraph-image`;
   const jsonLd = JSON.stringify({
     '@context': 'https://schema.org',
     '@type': 'Book',
     name: book.title,
     author: { '@type': 'Person', name: book.author },
     description: book.description,
-    image: productImage,
+    image: book.coverUrl,
     isbn: book.isbn,
     url: `${siteUrl}/books/${book.slug}`,
     aggregateRating: reviews.count ? { '@type': 'AggregateRating', ratingValue: Number(reviews.averageRating.toFixed(2)), ratingCount: reviews.count, bestRating: 5, worstRating: 1 } : undefined,

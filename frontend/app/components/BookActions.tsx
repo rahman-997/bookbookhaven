@@ -7,9 +7,11 @@ import { CartIcon, CheckIcon, HeartIcon } from './Icons';
 export default function BookActions({ bookId, stock, compact = false }: { bookId: string; stock: number; compact?: boolean }) {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState<'cart' | 'wish' | ''>('');
+  const success = message === 'Added to cart' || message === 'Saved';
 
   async function call(kind: 'cart' | 'wish') {
-    setBusy(kind); setMessage('');
+    setBusy(kind);
+    setMessage('');
     try {
       const response = kind === 'cart'
         ? await fetch('/api/backend/cart/items', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ bookId, quantity: 1 }) })
@@ -30,11 +32,12 @@ export default function BookActions({ bookId, stock, compact = false }: { bookId
 
   return <div className={compact ? '' : 'space-y-3'}>
     <div className={`flex flex-wrap ${compact ? 'gap-1.5' : 'gap-2'}`}>
-      <button disabled={busy !== '' || stock < 1} onClick={() => call('cart')} className={`button button--primary ${compact ? '!min-h-10 !px-3' : ''}`} aria-label={stock ? 'Add to cart' : 'Out of stock'}>
+      <button type="button" disabled={busy !== '' || stock < 1} aria-busy={busy === 'cart'} onClick={() => call('cart')} className={`button button--primary ${compact ? '!min-h-10 !px-3' : ''}`} aria-label={stock ? 'Add to cart' : 'Out of stock'}>
         {message === 'Added to cart' ? <CheckIcon size={17}/> : <CartIcon size={17}/>}<span>{busy === 'cart' ? 'Adding…' : stock ? (compact ? 'Add' : 'Add to cart') : 'Sold out'}</span>
       </button>
-      <button disabled={busy !== ''} onClick={() => call('wish')} className={`button button--ghost ${compact ? '!min-h-10 !px-3' : ''}`} aria-label="Save to wishlist"><HeartIcon size={17}/>{!compact ? <span>{busy === 'wish' ? 'Saving…' : 'Save'}</span> : null}</button>
+      <button type="button" disabled={busy !== ''} aria-busy={busy === 'wish'} onClick={() => call('wish')} className={`button button--ghost ${compact ? '!min-h-10 !px-3' : ''}`} aria-label="Save to wishlist"><HeartIcon size={17}/>{!compact ? <span>{busy === 'wish' ? 'Saving…' : 'Save'}</span> : null}</button>
     </div>
-    {message && !compact ? <p className={`mt-2 text-xs ${message === 'Added to cart' || message === 'Saved' ? 'text-emerald-300' : 'text-slate-400'}`}>{message} {message === 'Login required' ? <Link className="text-amber-200 underline underline-offset-4" href="/login">Sign in</Link> : null}</p> : null}
+    <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{message}</span>
+    {message && !compact ? <p className={`mt-2 text-xs ${success ? 'text-emerald-300' : 'text-slate-400'}`}>{message} {message === 'Login required' ? <Link className="text-amber-200 underline underline-offset-4" href="/login">Sign in</Link> : null}</p> : null}
   </div>;
 }

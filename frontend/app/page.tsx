@@ -31,6 +31,7 @@ function categoryLabel(value: string) {
 
 export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams;
+  const focusSearch = stringParam(params.focus, 20) === 'search';
   const search = stringParam(params.search, 200);
   const category = stringParam(params.category, 80).toLowerCase();
   const requestedSort = stringParam(params.sort, 32);
@@ -104,10 +105,10 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
     </section>
 
     <section id="library" className="page-shell scroll-mt-24 pb-8">
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-4"><div><p className="section-kicker">The library</p><h2 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">Browse without the noise.</h2><p className="mt-2 text-sm text-slate-500">{pagination.total} matching {pagination.total === 1 ? 'title' : 'titles'} · page {pagination.page} of {pagination.pages}</p></div><div className="flex items-center gap-2 text-sm text-slate-500"><ShieldIcon size={16}/> Secure account-based cart</div></div>
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-4"><div><p className="section-kicker">The library</p><h2 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">Browse without the noise.</h2><p id="catalog-results-summary" aria-live="polite" className="mt-2 text-sm text-slate-500">{pagination.total} matching {pagination.total === 1 ? 'title' : 'titles'} · page {pagination.page} of {pagination.pages}</p></div><div className="flex items-center gap-2 text-sm text-slate-500"><ShieldIcon size={16}/> Secure account-based cart</div></div>
 
-      <form className="glass grid gap-3 rounded-[1.4rem] p-3 md:grid-cols-2 xl:grid-cols-[minmax(240px,1.5fr)_180px_140px_140px_175px_auto]" action="/">
-        <label><span className="mb-1.5 block px-1 text-[10px] font-black uppercase tracking-[.16em] text-slate-500">Search</span><span className="relative block"><SearchIcon size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-600"/><input name="search" defaultValue={search} maxLength={200} placeholder="Title, author, subject…" className="field pl-11" /></span></label>
+      <form role="search" aria-label="Book catalog filters" className="glass grid gap-3 rounded-[1.4rem] p-3 md:grid-cols-2 xl:grid-cols-[minmax(240px,1.5fr)_180px_140px_140px_175px_auto]" action="/">
+        <label><span className="mb-1.5 block px-1 text-[10px] font-black uppercase tracking-[.16em] text-slate-500">Search</span><span className="relative block"><SearchIcon size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-600"/><input id="catalog-search" name="search" defaultValue={search} maxLength={200} autoFocus={focusSearch} aria-describedby="catalog-results-summary" autoComplete="off" enterKeyHint="search" placeholder="Title, author, subject…" className="field pl-11" /></span></label>
         <label><span className="mb-1.5 block px-1 text-[10px] font-black uppercase tracking-[.16em] text-slate-500">Category</span><select name="category" defaultValue={category} className="field"><option value="">Every category</option>{facets.categories.map((item) => <option key={item.name} value={item.name}>{categoryLabel(item.name)} ({item.count})</option>)}</select></label>
         <label><span className="mb-1.5 block px-1 text-[10px] font-black uppercase tracking-[.16em] text-slate-500">Min price</span><input name="minPrice" type="number" min="0" step="0.01" defaultValue={minPrice} placeholder={facets.total ? `$${facets.price.min.toFixed(0)}` : '$0'} className="field" /></label>
         <label><span className="mb-1.5 block px-1 text-[10px] font-black uppercase tracking-[.16em] text-slate-500">Max price</span><input name="maxPrice" type="number" min="0" step="0.01" defaultValue={maxPrice} placeholder={facets.total ? `$${facets.price.max.toFixed(0)}` : '$0'} className="field" /></label>
@@ -133,7 +134,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
         <div className="flex items-center gap-1.5">
           {pageNumbers.map((number, index) => <Fragment key={number}>
             {index > 0 && number - pageNumbers[index - 1]! > 1 ? <span className="px-1 text-slate-600" aria-hidden="true">…</span> : null}
-            <Link href={hrefFor({ page: number === 1 ? undefined : number })} aria-current={number === page ? 'page' : undefined} className={`grid h-10 min-w-10 place-items-center rounded-xl border px-3 text-sm font-black transition ${number === page ? 'border-amber-200/30 bg-amber-200/10 text-amber-100' : 'border-white/10 text-slate-400 hover:border-white/20 hover:text-white'}`}>{number}</Link>
+            <Link href={hrefFor({ page: number === 1 ? undefined : number })} aria-current={number === page ? 'page' : undefined} aria-label={`Go to catalog page ${number}`} className={`grid h-10 min-w-10 place-items-center rounded-xl border px-3 text-sm font-black transition ${number === page ? 'border-amber-200/30 bg-amber-200/10 text-amber-100' : 'border-white/10 text-slate-400 hover:border-white/20 hover:text-white'}`}>{number}</Link>
           </Fragment>)}
         </div>
         <Link href={hrefFor({ page: Math.min(pagination.pages, page + 1) })} aria-disabled={page >= pagination.pages} className={`button button--ghost ${page >= pagination.pages ? 'pointer-events-none opacity-40' : ''}`}>Next</Link>

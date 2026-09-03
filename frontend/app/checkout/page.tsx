@@ -7,12 +7,66 @@ import type { CartItem } from '@/lib/types';
 import { BagIcon, CheckIcon, ShieldIcon } from '@/app/components/Icons';
 
 type Cart = { items: CartItem[]; subtotal: number };
+
 export default function CheckoutPage() {
-  const router = useRouter(); const [cart, setCart] = useState<Cart | null>(null); const [message, setMessage] = useState('Loading your order…'); const [busy, setBusy] = useState(false);
-  useEffect(() => { void (async () => { const r = await fetch('/api/backend/cart', { cache:'no-store' }); if (r.status===401) { setMessage('Sign in before checkout.'); return; } if (!r.ok) { setMessage('Could not load your cart.'); return; } const p=await r.json(); setCart(p.data); setMessage(''); })(); }, []);
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setMessage(''); const form=new FormData(event.currentTarget); try { const r=await fetch('/api/backend/orders',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({shippingAddress:String(form.get('shippingAddress')??''),paymentMethod:String(form.get('paymentMethod')??'cash_on_delivery')})}); const p=await r.json().catch(()=>null); if(!r.ok){setMessage(p?.error?.message??'Could not place order.');setBusy(false);return;} window.dispatchEvent(new Event('bookhaven:cart-changed')); router.push('/orders'); router.refresh(); } catch { setMessage('Connection problem. Try again.'); setBusy(false); } }
-  return <main className="page-shell pb-28 pt-12 md:pb-20 md:pt-16"><div className="max-w-3xl"><p className="section-kicker">Checkout</p><h1 className="mt-2 text-4xl font-black tracking-tight md:text-5xl">A quiet, straightforward finish.</h1><p className="mt-3 text-sm leading-6 text-slate-500">No paid gateway is required: choose cash on delivery or settle manually. Your order and inventory remain fully tracked.</p></div>
-    {message ? <div className={`notice mt-8 ${message.startsWith('Could') || message.startsWith('Connection') ? 'notice--error':''}`}>{message} {message.startsWith('Sign') ? <Link href="/login" className="ml-2 font-bold text-amber-200 underline">Sign in</Link>:null}</div>:null}
-    {cart ? <div className="mt-9 grid gap-7 lg:grid-cols-[1fr_360px]"><form onSubmit={submit} className="surface rounded-[1.6rem] p-6 md:p-8"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-violet-500/10 text-violet-300">1</span><div><h2 className="font-black">Delivery details</h2><p className="text-xs text-slate-500">Where should this stack arrive?</p></div></div><label className="mt-6 block"><span className="mb-2 block text-xs font-bold uppercase tracking-[.12em] text-slate-500">Shipping address</span><textarea required minLength={10} maxLength={500} name="shippingAddress" rows={6} placeholder="Street, city, postal code, country" className="field resize-y" /></label><div className="mt-7 flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-amber-400/10 text-amber-200">2</span><div><h2 className="font-black">Settlement</h2><p className="text-xs text-slate-500">Both options keep the platform free.</p></div></div><div className="mt-5 grid gap-3 sm:grid-cols-2"><label className="glass cursor-pointer rounded-xl p-4"><input defaultChecked name="paymentMethod" value="cash_on_delivery" type="radio" className="mr-2"/><strong className="text-sm">Cash on delivery</strong><p className="mt-2 text-xs leading-5 text-slate-500">Pay when the order arrives.</p></label><label className="glass cursor-pointer rounded-xl p-4"><input name="paymentMethod" value="manual" type="radio" className="mr-2"/><strong className="text-sm">Manual settlement</strong><p className="mt-2 text-xs leading-5 text-slate-500">Handle payment outside the app.</p></label></div><button disabled={busy||cart.items.length===0} className="button button--primary mt-7 w-full"><CheckIcon size={17}/>{busy?'Placing order…':'Place order securely'}</button></form><aside className="glass h-fit rounded-[1.6rem] p-6 lg:sticky lg:top-28"><div className="flex items-center justify-between"><h2 className="font-black">Order summary</h2><BagIcon size={18} className="text-amber-200"/></div><div className="mt-5 space-y-4">{cart.items.map(item=><div key={item.book._id} className="flex justify-between gap-4 text-sm"><div><span className="font-semibold text-slate-300">{item.book.title}</span><p className="mt-1 text-xs text-slate-600">{item.quantity} × ${item.unitPrice.toFixed(2)}</p></div><strong>${(item.quantity*item.unitPrice).toFixed(2)}</strong></div>)}</div><div className="mt-6 flex items-end justify-between border-t border-white/10 pt-5"><span className="text-sm text-slate-500">Total</span><span className="text-3xl font-black">${cart.subtotal.toFixed(2)}</span></div><p className="mt-5 flex gap-2 text-xs leading-5 text-slate-600"><ShieldIcon size={15}/> Inventory is decremented atomically and rolled back if checkout fails.</p></aside></div>:null}
+  const router = useRouter();
+  const [cart, setCart] = useState<Cart | null>(null);
+  const [message, setMessage] = useState('Loading your order…');
+  const [busy, setBusy] = useState(false);
+  const messageIsError = message.startsWith('Could') || message.startsWith('Connection');
+
+  useEffect(() => {
+    void (async () => {
+      const response = await fetch('/api/backend/cart', { cache: 'no-store' });
+      if (response.status === 401) { setMessage('Sign in before checkout.'); return; }
+      if (!response.ok) { setMessage('Could not load your cart.'); return; }
+      const payload = await response.json();
+      setCart(payload.data);
+      setMessage('');
+    })();
+  }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage('');
+    const form = new FormData(event.currentTarget);
+    try {
+      const response = await fetch('/api/backend/orders', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          shippingAddress: String(form.get('shippingAddress') ?? ''),
+          paymentMethod: String(form.get('paymentMethod') ?? 'cash_on_delivery')
+        })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setMessage(payload?.error?.message ?? 'Could not place order.');
+        setBusy(false);
+        return;
+      }
+      window.dispatchEvent(new Event('bookhaven:cart-changed'));
+      router.push('/orders');
+      router.refresh();
+    } catch {
+      setMessage('Connection problem. Try again.');
+      setBusy(false);
+    }
+  }
+
+  return <main className="page-shell pb-28 pt-12 md:pb-20 md:pt-16">
+    <div className="max-w-3xl"><p className="section-kicker">Checkout</p><h1 className="mt-2 text-4xl font-black tracking-tight md:text-5xl">A quiet, straightforward finish.</h1><p className="mt-3 text-sm leading-6 text-slate-500">No paid gateway is required: choose cash on delivery or settle manually. Your order and inventory remain fully tracked.</p></div>
+    {message ? <div role={messageIsError ? 'alert' : 'status'} aria-live={messageIsError ? 'assertive' : 'polite'} aria-atomic="true" className={`notice mt-8 ${messageIsError ? 'notice--error' : ''}`}>{message} {message.startsWith('Sign') ? <Link href="/login" className="ml-2 font-bold text-amber-200 underline">Sign in</Link> : null}</div> : null}
+    {cart ? <div className="mt-9 grid gap-7 lg:grid-cols-[1fr_360px]">
+      <form onSubmit={submit} aria-busy={busy} className="surface rounded-[1.6rem] p-6 md:p-8">
+        <div className="flex items-center gap-3"><span aria-hidden="true" className="grid h-9 w-9 place-items-center rounded-xl bg-violet-500/10 text-violet-300">1</span><div><h2 className="font-black">Delivery details</h2><p className="text-xs text-slate-500">Where should this stack arrive?</p></div></div>
+        <label className="mt-6 block"><span className="mb-2 block text-xs font-bold uppercase tracking-[.12em] text-slate-500">Shipping address</span><textarea required minLength={10} maxLength={500} autoComplete="street-address" name="shippingAddress" rows={6} placeholder="Street, city, postal code, country" className="field resize-y" /></label>
+        <div className="mt-7 flex items-center gap-3"><span aria-hidden="true" className="grid h-9 w-9 place-items-center rounded-xl bg-amber-400/10 text-amber-200">2</span><div><h2 id="payment-method-heading" className="font-black">Settlement</h2><p className="text-xs text-slate-500">Both options keep the platform free.</p></div></div>
+        <div role="radiogroup" aria-labelledby="payment-method-heading" className="mt-5 grid gap-3 sm:grid-cols-2"><label className="glass cursor-pointer rounded-xl p-4"><input defaultChecked name="paymentMethod" value="cash_on_delivery" type="radio" className="mr-2"/><strong className="text-sm">Cash on delivery</strong><p className="mt-2 text-xs leading-5 text-slate-500">Pay when the order arrives.</p></label><label className="glass cursor-pointer rounded-xl p-4"><input name="paymentMethod" value="manual" type="radio" className="mr-2"/><strong className="text-sm">Manual settlement</strong><p className="mt-2 text-xs leading-5 text-slate-500">Handle payment outside the app.</p></label></div>
+        <button type="submit" disabled={busy || cart.items.length === 0} className="button button--primary mt-7 w-full"><CheckIcon size={17}/>{busy ? 'Placing order…' : 'Place order securely'}</button>
+      </form>
+      <aside className="glass h-fit rounded-[1.6rem] p-6 lg:sticky lg:top-28" aria-label="Order summary"><div className="flex items-center justify-between"><h2 className="font-black">Order summary</h2><BagIcon size={18} className="text-amber-200"/></div><div className="mt-5 space-y-4">{cart.items.map(item => <div key={item.book._id} className="flex justify-between gap-4 text-sm"><div><span className="font-semibold text-slate-300">{item.book.title}</span><p className="mt-1 text-xs text-slate-600">{item.quantity} × ${item.unitPrice.toFixed(2)}</p></div><strong>${(item.quantity * item.unitPrice).toFixed(2)}</strong></div>)}</div><div className="mt-6 flex items-end justify-between border-t border-white/10 pt-5"><span className="text-sm text-slate-500">Total</span><span className="text-3xl font-black">${cart.subtotal.toFixed(2)}</span></div><p className="mt-5 flex gap-2 text-xs leading-5 text-slate-600"><ShieldIcon size={15}/> Inventory is decremented atomically and rolled back if checkout fails.</p></aside>
+    </div> : null}
   </main>;
 }

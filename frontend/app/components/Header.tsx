@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BookIcon, CartIcon, HeartIcon, MenuIcon, PackageIcon, SearchIcon, UserIcon, XIcon } from './Icons';
 
 type User = { name: string; role: 'customer' | 'admin' };
@@ -15,6 +15,8 @@ const links = [
 export default function Header() {
   const pathname = usePathname();
   const router = useRouter();
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const firstMobileLinkRef = useRef<HTMLAnchorElement>(null);
   const [open, setOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [cartCount, setCartCount] = useState(0);
@@ -44,6 +46,18 @@ export default function Header() {
 
   useEffect(() => setOpen(false), [pathname]);
 
+  useEffect(() => {
+    if (!open) return;
+    firstMobileLinkRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setOpen(false);
+      queueMicrotask(() => menuButtonRef.current?.focus());
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open]);
+
   async function logout() {
     await fetch('/api/session/logout', { method: 'POST' });
     setUser(null); setCartCount(0); setOpen(false); router.push('/'); router.refresh();
@@ -64,21 +78,23 @@ export default function Header() {
       </nav>
 
       <div className="hidden items-center gap-2 md:flex">
-        <Link href="/?focus=search" className="grid h-10 w-10 place-items-center rounded-xl border border-white/[.07] bg-white/[.025] text-slate-400 transition hover:border-white/[.14] hover:text-white" aria-label="Search books"><SearchIcon size={18}/></Link>
+        <Link href="/?focus=search#library" className="grid h-10 w-10 place-items-center rounded-xl border border-white/[.07] bg-white/[.025] text-slate-400 transition hover:border-white/[.14] hover:text-white" aria-label="Search books"><SearchIcon size={18}/></Link>
         <Link href="/cart" className="relative grid h-10 w-10 place-items-center rounded-xl border border-white/[.07] bg-white/[.025] text-slate-300 transition hover:border-white/[.14] hover:text-white" aria-label={`Cart with ${cartCount} items`}><CartIcon size={18}/>{cartCount > 0 ? <span className="absolute -right-1.5 -top-1.5 grid min-h-5 min-w-5 place-items-center rounded-full border-2 border-[#060912] bg-amber-300 px-1 text-[10px] font-black text-slate-950">{cartCount > 99 ? '99+' : cartCount}</span> : null}</Link>
+        <span className="sr-only" aria-live="polite" aria-atomic="true">{cartCount} {cartCount === 1 ? 'item' : 'items'} in cart</span>
         {user?.role === 'admin' ? <Link href="/admin" className="button button--ghost !min-h-10 !px-3 text-amber-200">Admin</Link> : null}
         {user ? <Link href="/account" className="flex h-10 items-center gap-2 rounded-xl border border-white/[.07] bg-white/[.025] px-3 text-sm font-semibold text-slate-200"><span className="grid h-6 w-6 place-items-center rounded-lg bg-violet-400/15 text-[10px] font-black text-violet-200">{user.name.slice(0,2).toUpperCase()}</span>{user.name.split(' ')[0]}</Link> : <Link href="/login" className="button button--primary !min-h-10">Sign in</Link>}
       </div>
 
-      <button onClick={() => setOpen((value) => !value)} className="grid h-10 w-10 place-items-center rounded-xl border border-white/[.08] bg-white/[.03] text-slate-200 md:hidden" aria-expanded={open} aria-label="Toggle navigation">{open ? <XIcon size={19}/> : <MenuIcon size={19}/>}</button>
+      <button ref={menuButtonRef} onClick={() => setOpen((value) => !value)} className="grid h-10 w-10 place-items-center rounded-xl border border-white/[.08] bg-white/[.03] text-slate-200 md:hidden" aria-expanded={open} aria-controls="mobile-header-navigation" aria-label={open ? 'Close navigation' : 'Open navigation'}>{open ? <XIcon size={19}/> : <MenuIcon size={19}/>}</button>
     </div>
 
-    {open ? <div className="border-t border-white/[.06] bg-[#080b15]/96 p-3 backdrop-blur-2xl md:hidden"><div className="page-shell grid gap-1">
-      <Link href="/" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-200"><BookIcon size={18}/>Discover</Link>
+    {open ? <nav id="mobile-header-navigation" aria-label="Mobile primary navigation" className="border-t border-white/[.06] bg-[#080b15]/96 p-3 backdrop-blur-2xl md:hidden"><div className="page-shell grid gap-1">
+      <Link ref={firstMobileLinkRef} href="/" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-200"><BookIcon size={18}/>Discover</Link>
+      <Link href="/?focus=search#library" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-200"><SearchIcon size={18}/>Search books</Link>
       <Link href="/wishlist" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-200"><HeartIcon size={18}/>Saved books</Link>
       <Link href="/orders" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-200"><PackageIcon size={18}/>Orders</Link>
       <Link href="/cart" className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-semibold text-slate-200"><span className="flex items-center gap-3"><CartIcon size={18}/>Cart</span>{cartCount ? <span className="rounded-full bg-amber-200/10 px-2 py-1 text-xs text-amber-200">{cartCount}</span> : null}</Link>
       {user ? <><Link href="/account" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-200"><UserIcon size={18}/>Account</Link>{user.role === 'admin' ? <Link href="/admin" className="rounded-xl px-3 py-3 text-sm font-semibold text-amber-200">Admin dashboard</Link> : null}<button onClick={logout} className="mt-1 rounded-xl border border-white/[.08] px-3 py-3 text-left text-sm text-slate-400">Sign out</button></> : <Link href="/login" className="button button--primary mt-2">Sign in</Link>}
-    </div></div> : null}
+    </div></nav> : null}
   </header>;
 }

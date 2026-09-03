@@ -34,22 +34,43 @@ The gate verifies:
 
 This is deliberately stronger than checking that `frontend/.next/standalone/server.js` merely exists: it validates that the built application can actually boot and complete a critical commerce flow.
 
-## Health and storage durability
+## Health, readiness and storage durability
 
-Public health endpoint:
+Public full-stack readiness endpoint:
 
 ```text
 GET /api/health
 ```
 
-The backend health payload exposes only non-secret operational state:
+The Next.js health route proxies the backend readiness probe and returns HTTP 503 when the backend cannot prove that MongoDB is responding. Health responses are explicitly `Cache-Control: no-store` so deploy and monitoring checks cannot succeed from stale intermediary data.
+
+Backend probes:
+
+```text
+GET /api/v1/health/live
+GET /api/v1/health/ready
+GET /api/v1/health
+```
+
+`/health/live` is process liveness. It returns HTTP 200 while the API process is running, including while graceful shutdown is draining traffic.
+
+`/health/ready` is traffic readiness. It performs an actual MongoDB `ping` with a bounded timeout and returns HTTP 503 when the database is unavailable or graceful shutdown has begun. `/health` remains a compatibility alias for the same readiness behavior.
+
+The readiness payload exposes only non-secret operational state:
 
 - `database`: `up` or `down`
 - `storageMode`: `external`, `ephemeral`, or `unknown`
 - `durable`: `true` only when an external MongoDB connection is configured
+- `shuttingDown`: `true` once the runtime has started draining requests
 - `uptime`: backend process uptime in seconds
 
 No MongoDB URI, credentials, hostnames, or secrets are returned by health diagnostics.
+
+### Graceful shutdown
+
+On `SIGTERM` or `SIGINT`, the backend immediately marks itself not-ready before closing the HTTP listener. Idle connections are closed, in-flight work is given time to finish, and MongoDB is disconnected before normal process exit. An 8-second hard deadline prevents a stuck keep-alive or dependency from hanging shutdown indefinitely; after that deadline remaining HTTP connections are force-closed and the process exits unsuccessfully.
+
+Repeated shutdown signals are idempotent and do not start overlapping drain sequences.
 
 ### External/durable mode
 
@@ -61,7 +82,8 @@ Expected health state:
 {
   "database": "up",
   "storageMode": "external",
-  "durable": true
+  "durable": true,
+  "shuttingDown": false
 }
 ```
 
@@ -75,7 +97,8 @@ Expected health state:
 {
   "database": "up",
   "storageMode": "ephemeral",
-  "durable": false
+  "durable": false,
+  "shuttingDown": false
 }
 ```
 
@@ -118,6 +141,6 @@ Before declaring a revision production-ready:
 4. Squash merge to `main`.
 5. Post-merge CI and security scanners succeed.
 6. Render deploy for the exact merge commit reaches `live`.
-7. Public `/api/health` returns HTTP 200.
+7. Public `/api/health` returns HTTP 200 and `shuttingDown: false`.
 8. Public catalog/facet endpoints return expected data.
 9. For durable production, health must additionally report `storageMode: external` and `durable: true`.

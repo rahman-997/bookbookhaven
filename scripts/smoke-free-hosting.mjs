@@ -37,6 +37,15 @@ async function json(path, options = {}, expectedStatus = 200) {
   return { response, payload };
 }
 
+function mutationHeaders(cookie, contentType = true) {
+  return {
+    ...(cookie ? { cookie } : {}),
+    ...(contentType ? { 'content-type': 'application/json' } : {}),
+    origin: baseUrl,
+    'sec-fetch-site': 'same-origin'
+  };
+}
+
 async function waitForReady(child) {
   let lastError;
   while (Date.now() - startedAt < startupTimeoutMs) {
@@ -97,8 +106,11 @@ try {
   const catalog = await json('/api/backend/books?limit=2&sort=title');
   assert(catalog.payload?.success === true, 'catalog API did not report success');
   assert(Array.isArray(catalog.payload?.data) && catalog.payload.data.length === 2, 'seeded catalog did not return two books');
-  const firstBookId = catalog.payload.data[0]?._id;
+  const firstBook = catalog.payload.data[0];
+  const firstBookId = firstBook?._id;
+  const originalStock = Number(firstBook?.stock);
   assert(typeof firstBookId === 'string' && firstBookId.length > 0, 'catalog book id missing');
+  assert(Number.isInteger(originalStock) && originalStock > 0, 'seeded catalog book must have positive integer stock');
 
   const facets = await json('/api/backend/books/facets');
   assert(facets.payload?.success === true, 'facets API did not report success');
@@ -121,11 +133,7 @@ try {
   const email = `smoke-${Date.now()}@example.com`;
   const register = await json('/api/session/register', {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      origin: baseUrl,
-      'sec-fetch-site': 'same-origin'
-    },
+    headers: mutationHeaders(),
     body: JSON.stringify({ name: 'Smoke Reader', email, password: 'SmokeReader-7x!Stable' })
   });
   assert(register.payload?.success === true, 'registration did not report success');
@@ -139,19 +147,42 @@ try {
 
   const addCart = await json('/api/backend/cart/items', {
     method: 'POST',
-    headers: {
-      cookie,
-      'content-type': 'application/json',
-      origin: baseUrl,
-      'sec-fetch-site': 'same-origin'
-    },
+    headers: mutationHeaders(cookie),
     body: JSON.stringify({ bookId: firstBookId, quantity: 1 })
   }, 201);
   assert(addCart.payload?.success === true, 'cart add did not report success');
 
-  const cart = await json('/api/backend/cart', { headers: { cookie } });
-  assert(cart.payload?.success === true, 'cart lookup did not report success');
-  assert(Array.isArray(cart.payload?.data?.items) && cart.payload.data.items.length === 1, 'authenticated cart did not persist the item');
+  const cartBeforeCheckout = await json('/api/backend/cart', { headers: { cookie } });
+  assert(cartBeforeCheckout.payload?.success === true, 'cart lookup did not report success');
+  assert(Array.isArray(cartBeforeCheckout.payload?.data?.items) && cartBeforeCheckout.payload.data.items.length === 1, 'authenticated cart did not persist the item');
+
+  const checkout = await json('/api/backend/orders', {
+    method: 'POST',
+    headers: mutationHeaders(cookie),
+    body: JSON.stringify({
+      shippingAddress: '42 Smoke Test Avenue, Istanbul, Türkiye',
+      paymentMethod: 'cash_on_delivery'
+    })
+  }, 201);
+  assert(checkout.payload?.success === true, 'checkout did not report success');
+  const orderId = checkout.payload?.data?._id;
+  assert(typeof orderId === 'string' && orderId.length > 0, 'created order id missing');
+  assert(checkout.payload?.data?.status === 'pending', 'new order must start pending');
+  assert(Array.isArray(checkout.payload?.data?.items) && checkout.payload.data.items.length === 1, 'created order item snapshot missing');
+
+  const cartAfterCheckout = await json('/api/backend/cart', { headers: { cookie } });
+  assert(Array.isArray(cartAfterCheckout.payload?.data?.items) && cartAfterCheckout.payload.data.items.length === 0, 'checkout did not clear the cart');
+
+  const orderHistory = await json('/api/backend/orders?page=1&limit=10', { headers: { cookie } });
+  assert(orderHistory.payload?.success === true, 'order history did not report success');
+  assert(Array.isArray(orderHistory.payload?.data) && orderHistory.payload.data.some((order) => order._id === orderId), 'created order missing from order history');
+  assert(Number(orderHistory.payload?.meta?.total) === 1, 'order history total should be one for the smoke user');
+
+  const orderDetail = await json(`/api/backend/orders/${encodeURIComponent(orderId)}`, { headers: { cookie } });
+  assert(orderDetail.payload?.data?._id === orderId, 'order detail lookup did not return the created order');
+
+  const bookAfterCheckout = await json(`/api/backend/books/${encodeURIComponent(firstBookId)}`);
+  assert(Number(bookAfterCheckout.payload?.data?.stock) === originalStock - 1, 'checkout did not decrement inventory exactly once');
 
   console.log(`[bookhaven-smoke] PASS in ${Date.now() - startedAt}ms`);
 } finally {

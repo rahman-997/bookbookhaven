@@ -1,17 +1,17 @@
 .skip-link {
   position: fixed;
-  z-index: 100;
+  z-index: 1000;
   left: 1rem;
   top: 1rem;
   transform: translateY(-180%);
   border: 1px solid rgba(255, 232, 170, .45);
-  border-radius: .75rem;
-  background: #111522;
-  color: #ffe8aa;
+  border-radius: .8rem;
+  background: var(--gold-2);
+  color: #17110a;
   padding: .7rem 1rem;
-  font-size: .875rem;
-  font-weight: 800;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, .45);
+  font-size: .82rem;
+  font-weight: 900;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .4);
   transition: transform .15s ease;
 }
 
@@ -24,5 +24,82 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .skip-link { transition: none; }
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --muted: #cbd2e3;
+    --dim: #aab3c8;
+    --line: rgba(255, 255, 255, .22);
+    --line-strong: rgba(255, 255, 255, .4);
+  }
+
+  .field::placeholder { color: #aab3c8; }
+  .mobile-dock__item { color: #c1c8d8; }
+}
+
+@media (forced-colors: active) {
+  body::before,
+  body::after,
+  .hero-orb,
+  .hero-stage::before,
+  .book-cover__halo,
+  .book-cover__grid,
+  .shelf-card::after,
+  .skeleton::after {
+    display: none !important;
+  }
+
+  .glass,
+  .surface,
+  .editorial-card,
+  .shelf-card,
+  .metric,
+  .chip,
+  .notice,
+  .field,
+  .admin-input,
+  .mobile-dock,
+  .empty-state,
+  .book-cover {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+
+  .button,
+  .button--primary,
+  .button--violet,
+  .button--ghost,
+  .button--danger {
+    border: 1px solid ButtonText;
+    background: ButtonFace;
+    color: ButtonText;
+    box-shadow: none;
+  }
+
+  .text-gradient {
+    background: none;
+    color: CanvasText;
+    -webkit-text-fill-color: CanvasText;
+  }
+
+  .status-dot {
+    background: Highlight;
+    box-shadow: none;
+  }
+
+  :focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 3px;
+  }
 }

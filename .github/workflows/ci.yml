@@ -41,6 +41,8 @@ jobs:
       - name: Audit frontend runtime dependencies
         working-directory: frontend
         run: npm audit --omit=dev --audit-level=high
+      - name: Verify frontend CSS accessibility and paint budget
+        run: node scripts/verify-frontend-css.mjs
       - name: Typecheck backend
         working-directory: backend
         run: npm run typecheck
@@ -60,6 +62,7 @@ jobs:
         run: |
           node --check scripts/start-free-hosting.mjs
           node --check scripts/smoke-free-hosting.mjs
+          node --check scripts/verify-frontend-css.mjs
           test -f frontend/.next/standalone/server.js
       - name: Smoke test free-hosting runtime
         env:

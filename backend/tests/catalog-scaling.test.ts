@@ -85,6 +85,19 @@ describe('Catalog and review scaling', () => {
     expect(response.body.meta).toMatchObject({ page: 1, limit: 1, total: 2, pages: 2 });
   });
 
+  it('treats author filters as literal text instead of regular expressions', async () => {
+    await Book.create([
+      { title: 'Literal Dot', slug: 'literal-dot', author: 'A.B Author', description: '', price: 10, stock: 2, categories: [], featured: false },
+      { title: 'Wildcard Lookalike', slug: 'wildcard-lookalike', author: 'AxB Author', description: '', price: 11, stock: 2, categories: [], featured: false }
+    ]);
+
+    const response = await request(app).get('/api/v1/books?author=A.B');
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toHaveLength(1);
+    expect(response.body.data[0].slug).toBe('literal-dot');
+    expect(response.body.meta.total).toBe(1);
+  });
+
   it('returns stable catalog facets independently from active listing filters', async () => {
     await Book.create([
       { title: 'Engineering One', slug: 'engineering-one', author: 'One', description: '', price: 8, stock: 2, categories: ['engineering', 'career'], featured: false },

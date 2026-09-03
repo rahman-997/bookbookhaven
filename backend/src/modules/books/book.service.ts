@@ -17,10 +17,14 @@ type ListInput = {
   sort: 'newest' | 'oldest' | 'price_asc' | 'price_desc' | 'title';
 };
 
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export async function list(input: ListInput) {
   const filter: Record<string, unknown> = {};
   if (input.search) filter.$text = { $search: input.search };
-  if (input.author) filter.author = { $regex: input.author, $options: 'i' };
+  if (input.author) filter.author = { $regex: escapeRegex(input.author), $options: 'i' };
   if (input.category) filter.categories = input.category.toLowerCase();
   if (input.featured) filter.featured = input.featured === 'true';
   if (input.minPrice !== undefined || input.maxPrice !== undefined) {

@@ -40,7 +40,7 @@ async function readinessResponse(res: Response) {
   disableCaching(res);
 
   const shuttingDown = isShuttingDown();
-  const database = shuttingDown ? 'down' : (await databaseReady()) ? 'up' : 'down';
+  const database = (await databaseReady()) ? 'up' : 'down';
   const ready = database === 'up' && !shuttingDown;
   const mode = storageMode();
 

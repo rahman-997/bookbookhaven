@@ -54,6 +54,38 @@ export async function list(input: ListInput) {
   };
 }
 
+export async function facets() {
+  const [result] = await Book.aggregate<{
+    categories: Array<{ _id: string; count: number }>;
+    price: Array<{ min: number; max: number }>;
+    total: Array<{ value: number }>;
+  }>([
+    {
+      $facet: {
+        categories: [
+          { $unwind: '$categories' },
+          { $match: { categories: { $ne: '' } } },
+          { $group: { _id: '$categories', count: { $sum: 1 } } },
+          { $sort: { count: -1, _id: 1 } },
+          { $limit: 50 }
+        ],
+        price: [{ $group: { _id: null, min: { $min: '$price' }, max: { $max: '$price' } } }],
+        total: [{ $count: 'value' }]
+      }
+    }
+  ]);
+
+  const price = result?.price[0];
+  return {
+    categories: (result?.categories ?? []).map((item) => ({ name: item._id, count: item.count })),
+    price: {
+      min: price?.min ?? 0,
+      max: price?.max ?? 0
+    },
+    total: result?.total[0]?.value ?? 0
+  };
+}
+
 export async function getById(id: string) {
   const book = await Book.findById(id).lean();
   if (!book) throw new HttpError(404, 'Book not found');

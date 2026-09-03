@@ -7,86 +7,39 @@ const baseUrl = `http://127.0.0.1:${publicPort}`;
 const startupTimeoutMs = Number(process.env.SMOKE_STARTUP_TIMEOUT_MS || 90_000);
 const startedAt = Date.now();
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function assert(condition, message) {
-  if (!condition) throw new Error(message);
-}
-
-async function request(path, options = {}) {
-  const response = await fetch(`${baseUrl}${path}`, {
-    redirect: 'manual',
-    signal: AbortSignal.timeout(10_000),
-    ...options
-  });
-  return response;
-}
-
+function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function assert(condition, message) { if (!condition) throw new Error(message); }
+async function request(path, options = {}) { return fetch(`${baseUrl}${path}`, { redirect: 'manual', signal: AbortSignal.timeout(10_000), ...options }); }
+async function requestAbsolute(url, options = {}) { return fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(10_000), ...options }); }
 async function json(path, options = {}, expectedStatus = 200) {
   const response = await request(path, options);
   const text = await response.text();
   let payload;
-  try {
-    payload = JSON.parse(text);
-  } catch {
-    throw new Error(`${path} returned non-JSON status=${response.status}: ${text.slice(0, 300)}`);
-  }
+  try { payload = JSON.parse(text); } catch { throw new Error(`${path} returned non-JSON status=${response.status}: ${text.slice(0, 300)}`); }
   assert(response.status === expectedStatus, `${path} expected ${expectedStatus}, got ${response.status}: ${text.slice(0, 300)}`);
   return { response, payload };
 }
-
-function mutationHeaders(cookie, contentType = true) {
-  return {
-    ...(cookie ? { cookie } : {}),
-    ...(contentType ? { 'content-type': 'application/json' } : {}),
-    origin: baseUrl,
-    'sec-fetch-site': 'same-origin'
-  };
-}
-
+function mutationHeaders(cookie, contentType = true) { return { ...(cookie ? { cookie } : {}), ...(contentType ? { 'content-type': 'application/json' } : {}), origin: baseUrl, 'sec-fetch-site': 'same-origin' }; }
 async function waitForReady(child) {
   let lastError;
   while (Date.now() - startedAt < startupTimeoutMs) {
     if (child.exitCode !== null) throw new Error(`free-hosting runtime exited before readiness with code ${child.exitCode}`);
-    try {
-      const { payload } = await json('/api/health');
-      if (payload?.status === 'ok' && payload?.backend?.data?.database === 'up') return payload;
-    } catch (error) {
-      lastError = error;
-    }
+    try { const { payload } = await json('/api/health'); if (payload?.status === 'ok' && payload?.backend?.data?.database === 'up') return payload; } catch (error) { lastError = error; }
     await sleep(500);
   }
   throw new Error(`runtime did not become ready within ${startupTimeoutMs}ms${lastError ? `: ${lastError.message}` : ''}`);
 }
-
 async function stop(child) {
   if (child.exitCode !== null) return;
   child.kill('SIGTERM');
-  const exited = await Promise.race([
-    new Promise((resolve) => child.once('exit', () => resolve(true))),
-    sleep(8_000).then(() => false)
-  ]);
+  const exited = await Promise.race([new Promise((resolve) => child.once('exit', () => resolve(true))), sleep(8_000).then(() => false)]);
   if (!exited && child.exitCode === null) child.kill('SIGKILL');
 }
 
 const runtime = spawn(process.execPath, ['scripts/start-free-hosting.mjs'], {
-  cwd: process.cwd(),
-  stdio: 'inherit',
-  env: {
-    ...process.env,
-    NODE_ENV: 'production',
-    PORT: String(publicPort),
-    BACKEND_PORT: String(backendPort),
-    INTERNAL_API_URL: `http://127.0.0.1:${backendPort}/api/v1`,
-    CORS_ORIGIN: baseUrl,
-    NEXT_PUBLIC_SITE_URL: baseUrl,
-    JWT_SECRET: 'ci-smoke-jwt-secret-7x-bookhaven-stable-2026',
-    ADMIN_PASSWORD: 'CiSmokeAdmin-7x!Stable',
-    AUTO_SEED: 'true',
-    NEXT_TELEMETRY_DISABLED: '1',
-    MONGOMS_DOWNLOAD_DIR: process.env.MONGOMS_DOWNLOAD_DIR || '/tmp/bookhaven-mongodb-binaries'
+  cwd: process.cwd(), stdio: 'inherit', env: {
+    ...process.env, NODE_ENV: 'production', PORT: String(publicPort), BACKEND_PORT: String(backendPort), INTERNAL_API_URL: `http://127.0.0.1:${backendPort}/api/v1`, CORS_ORIGIN: baseUrl, NEXT_PUBLIC_SITE_URL: baseUrl,
+    JWT_SECRET: 'ci-smoke-jwt-secret-7x-bookhaven-stable-2026', ADMIN_PASSWORD: 'CiSmokeAdmin-7x!Stable', AUTO_SEED: 'true', NEXT_TELEMETRY_DISABLED: '1', MONGOMS_DOWNLOAD_DIR: process.env.MONGOMS_DOWNLOAD_DIR || '/tmp/bookhaven-mongodb-binaries'
   }
 });
 
@@ -104,6 +57,8 @@ try {
   assert(homepageText.includes('Browse without the noise'), 'catalog section missing from homepage');
   assert(homepageText.includes('href="#main-content"'), 'keyboard skip link missing');
   assert(homepageText.includes('id="main-content"'), 'skip-link main target missing');
+  assert(homepageText.includes('BookHaven edition'), 'BookHaven edition language missing from catalog');
+  assert(!homepageText.includes('images.unsplash.com'), 'legacy Unsplash stock imagery leaked into homepage');
 
   const focusedSearchPage = await request('/?focus=search');
   const focusedSearchText = await focusedSearchPage.text();
@@ -118,7 +73,24 @@ try {
   const firstBookId = firstBook?._id;
   const originalStock = Number(firstBook?.stock);
   assert(typeof firstBookId === 'string' && firstBookId.length > 0, 'catalog book id missing');
+  assert(typeof firstBook?.slug === 'string' && firstBook.slug.length > 0, 'catalog book slug missing');
+  assert(typeof firstBook?.isbn === 'string' && /^\d{13}$/.test(firstBook.isbn), 'seeded catalog must include a normalized ISBN-13');
+  assert(!firstBook?.coverUrl, 'seeded demo catalog should use BookHaven edition covers instead of stock cover URLs');
   assert(Number.isInteger(originalStock) && originalStock > 0, 'seeded catalog book must have positive integer stock');
+
+  const bookPage = await request(`/books/${encodeURIComponent(firstBook.slug)}`);
+  const bookPageText = await bookPage.text();
+  assert(bookPage.status === 200, `book page expected 200, got ${bookPage.status}`);
+  assert(bookPageText.includes('BookHaven edition'), 'book detail is missing BookHaven edition identity');
+  assert(!bookPageText.includes('images.unsplash.com'), 'legacy Unsplash stock imagery leaked into book detail');
+  const ogImageMatch = bookPageText.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i) ?? bookPageText.match(/<meta[^>]+content="([^"]+)"[^>]+property="og:image"/i);
+  assert(ogImageMatch?.[1], 'book detail did not expose generated Open Graph image metadata');
+  const ogImageUrl = new URL(ogImageMatch[1].replaceAll('&amp;', '&'), baseUrl).toString();
+  const socialImage = await requestAbsolute(ogImageUrl);
+  assert(socialImage.status === 200, `book social image expected 200, got ${socialImage.status}`);
+  assert((socialImage.headers.get('content-type') ?? '').startsWith('image/png'), `book social image must be PNG, got ${socialImage.headers.get('content-type')}`);
+  const socialImageBytes = await socialImage.arrayBuffer();
+  assert(socialImageBytes.byteLength > 10_000, 'book social image payload is unexpectedly small');
 
   const facets = await json('/api/backend/books/facets');
   assert(facets.payload?.success === true, 'facets API did not report success');
@@ -139,39 +111,22 @@ try {
   assert(sitemapText.includes('/books/'), 'sitemap does not contain book URLs');
 
   const email = `smoke-${Date.now()}@example.com`;
-  const register = await json('/api/session/register', {
-    method: 'POST',
-    headers: mutationHeaders(),
-    body: JSON.stringify({ name: 'Smoke Reader', email, password: 'SmokeReader-7x!Stable' })
-  });
+  const register = await json('/api/session/register', { method: 'POST', headers: mutationHeaders(), body: JSON.stringify({ name: 'Smoke Reader', email, password: 'SmokeReader-7x!Stable' }) });
   assert(register.payload?.success === true, 'registration did not report success');
   assert(register.payload?.data?.email === email, 'registered email mismatch');
   const setCookie = register.response.headers.get('set-cookie');
   assert(setCookie?.includes('bookhaven_token='), 'registration did not issue the session cookie');
   const cookie = setCookie.split(';', 1)[0];
-
   const me = await json('/api/backend/auth/me', { headers: { cookie } });
   assert(me.payload?.data?.email === email, 'authenticated session lookup failed');
 
-  const addCart = await json('/api/backend/cart/items', {
-    method: 'POST',
-    headers: mutationHeaders(cookie),
-    body: JSON.stringify({ bookId: firstBookId, quantity: 1 })
-  }, 201);
+  const addCart = await json('/api/backend/cart/items', { method: 'POST', headers: mutationHeaders(cookie), body: JSON.stringify({ bookId: firstBookId, quantity: 1 }) }, 201);
   assert(addCart.payload?.success === true, 'cart add did not report success');
-
   const cartBeforeCheckout = await json('/api/backend/cart', { headers: { cookie } });
   assert(cartBeforeCheckout.payload?.success === true, 'cart lookup did not report success');
   assert(Array.isArray(cartBeforeCheckout.payload?.data?.items) && cartBeforeCheckout.payload.data.items.length === 1, 'authenticated cart did not persist the item');
 
-  const checkout = await json('/api/backend/orders', {
-    method: 'POST',
-    headers: mutationHeaders(cookie),
-    body: JSON.stringify({
-      shippingAddress: '42 Smoke Test Avenue, Istanbul, Türkiye',
-      paymentMethod: 'cash_on_delivery'
-    })
-  }, 201);
+  const checkout = await json('/api/backend/orders', { method: 'POST', headers: mutationHeaders(cookie), body: JSON.stringify({ shippingAddress: '42 Smoke Test Avenue, Istanbul, Türkiye', paymentMethod: 'cash_on_delivery' }) }, 201);
   assert(checkout.payload?.success === true, 'checkout did not report success');
   const orderId = checkout.payload?.data?._id;
   assert(typeof orderId === 'string' && orderId.length > 0, 'created order id missing');
@@ -180,19 +135,14 @@ try {
 
   const cartAfterCheckout = await json('/api/backend/cart', { headers: { cookie } });
   assert(Array.isArray(cartAfterCheckout.payload?.data?.items) && cartAfterCheckout.payload.data.items.length === 0, 'checkout did not clear the cart');
-
   const orderHistory = await json('/api/backend/orders?page=1&limit=10', { headers: { cookie } });
   assert(orderHistory.payload?.success === true, 'order history did not report success');
   assert(Array.isArray(orderHistory.payload?.data) && orderHistory.payload.data.some((order) => order._id === orderId), 'created order missing from order history');
   assert(Number(orderHistory.payload?.meta?.total) === 1, 'order history total should be one for the smoke user');
-
   const orderDetail = await json(`/api/backend/orders/${encodeURIComponent(orderId)}`, { headers: { cookie } });
   assert(orderDetail.payload?.data?._id === orderId, 'order detail lookup did not return the created order');
-
   const bookAfterCheckout = await json(`/api/backend/books/${encodeURIComponent(firstBookId)}`);
   assert(Number(bookAfterCheckout.payload?.data?.stock) === originalStock - 1, 'checkout did not decrement inventory exactly once');
 
   console.log(`[bookhaven-smoke] PASS in ${Date.now() - startedAt}ms`);
-} finally {
-  await stop(runtime);
-}
+} finally { await stop(runtime); }

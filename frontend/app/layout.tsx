@@ -17,5 +17,5 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { themeColor: '#060912', colorScheme: 'dark' };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body><Header /><div className="min-h-[calc(100vh-220px)]">{children}</div><Footer /><MobileNav /></body></html>;
+  return <html lang="en"><body><a href="#main-content" className="skip-link">Skip to main content</a><Header /><div id="main-content" tabIndex={-1} className="min-h-[calc(100vh-220px)]">{children}</div><Footer /><MobileNav /></body></html>;
 }

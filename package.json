@@ -12,6 +12,7 @@
     "verify": "npm run audit:prod && npm run typecheck && npm test && npm run build",
     "build:free": "npm ci --include=dev --no-audit --no-fund --prefix backend && npm audit --omit=dev --audit-level=high --prefix backend && npm run typecheck --prefix backend && npm test --prefix backend && npm run build --prefix backend && npm ci --include=dev --no-audit --no-fund --prefix frontend && npm audit --omit=dev --audit-level=high --prefix frontend && npm run typecheck --prefix frontend && npm run build --prefix frontend",
     "start:free": "node scripts/start-free-hosting.mjs",
+    "smoke:free": "node scripts/smoke-free-hosting.mjs",
     "seed:free": "node backend/dist/seed.js"
   },
   "engines": {

@@ -56,7 +56,12 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
-      - name: Verify free-hosting runtime
+      - name: Verify free-hosting runtime files
         run: |
           node --check scripts/start-free-hosting.mjs
+          node --check scripts/smoke-free-hosting.mjs
           test -f frontend/.next/standalone/server.js
+      - name: Smoke test free-hosting runtime
+        env:
+          MONGOMS_DOWNLOAD_DIR: /tmp/bookhaven-mongodb-binaries
+        run: npm run smoke:free

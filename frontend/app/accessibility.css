@@ -1,0 +1,28 @@
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  left: 1rem;
+  top: 1rem;
+  transform: translateY(-180%);
+  border: 1px solid rgba(255, 232, 170, .45);
+  border-radius: .75rem;
+  background: #111522;
+  color: #ffe8aa;
+  padding: .7rem 1rem;
+  font-size: .875rem;
+  font-weight: 800;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .45);
+  transition: transform .15s ease;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+#main-content:focus {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skip-link { transition: none; }
+}

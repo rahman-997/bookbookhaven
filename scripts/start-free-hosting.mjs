@@ -133,13 +133,14 @@ async function seedIfEnabled() {
   await waitForExit(seed, 'seed');
 }
 
-async function shutdown(signal) {
+async function shutdown(signal, exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`[bookhaven] ${signal} received; stopping services...`);
+  process.exitCode = exitCode;
+  console.log(`[bookhaven] ${signal} received; stopping services with exit code ${exitCode}...`);
   for (const child of children) child.kill('SIGTERM');
   if (embeddedMongo) await embeddedMongo.stop().catch(() => undefined);
-  setTimeout(() => process.exit(0), 8000).unref();
+  setTimeout(() => process.exit(exitCode), 8000).unref();
 }
 
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
@@ -161,9 +162,9 @@ if (await ensureMongoUri()) {
 
     const fail = (name) => (code, signal) => {
       if (shuttingDown) return;
+      const exitCode = typeof code === 'number' && code !== 0 ? code : 1;
       console.error(`[bookhaven] ${name} stopped unexpectedly: code=${code} signal=${signal}`);
-      void shutdown(`${name}_EXIT`);
-      process.exitCode = code || 1;
+      void shutdown(`${name}_EXIT`, exitCode);
     };
 
     backend.on('exit', fail('backend'));
@@ -173,7 +174,6 @@ if (await ensureMongoUri()) {
     console.log(`[bookhaven] backend internal URL: ${internalApiUrl}`);
   } catch (error) {
     console.error('[bookhaven] startup failed', error);
-    void shutdown('STARTUP_FAILURE');
-    process.exit(1);
+    void shutdown('STARTUP_FAILURE', 1);
   }
 }

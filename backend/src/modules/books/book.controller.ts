@@ -6,11 +6,15 @@ export async function list(req: Request, res: Response) {
   res.json({ success: true, data: result.items, meta: result.pagination });
 }
 
+export async function facets(_req: Request, res: Response) {
+  const data = await service.facets();
+  res.json({ success: true, data });
+}
+
 export async function get(req: Request<{ id: string }>, res: Response) {
   const book = await service.getById(req.params.id!);
   res.json({ success: true, data: book });
 }
-
 
 export async function getBySlug(req: Request<{ slug: string }>, res: Response) {
   const book = await service.getBySlug(req.params.slug);

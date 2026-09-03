@@ -6,6 +6,7 @@ import { bookIdParamsSchema, bookSlugParamsSchema, createBookSchema, listBooksQu
 
 export const bookRouter = Router();
 bookRouter.get('/', validateQuery(listBooksQuerySchema), controller.list);
+bookRouter.get('/facets', controller.facets);
 bookRouter.get('/slug/:slug', validateParams(bookSlugParamsSchema), controller.getBySlug);
 bookRouter.get('/:id', validateParams(bookIdParamsSchema), controller.get);
 bookRouter.post('/', requireAuth, requireRole('admin'), validateBody(createBookSchema), controller.create);

@@ -3,6 +3,11 @@ import type { Book, Review } from './types';
 export const internalApiUrl = process.env.INTERNAL_API_URL ?? 'http://localhost:3001/api/v1';
 
 type Pagination = { page: number; limit: number; total: number; pages: number };
+export type CatalogFacets = {
+  categories: Array<{ name: string; count: number }>;
+  price: { min: number; max: number };
+  total: number;
+};
 
 async function getJson<T>(path: string): Promise<T | null> {
   try {
@@ -31,6 +36,18 @@ export async function getBooksPage(query = ''): Promise<{ items: Book[]; paginat
 
 export async function getBooks(query = ''): Promise<Book[]> {
   return (await getBooksPage(query)).items;
+}
+
+export async function getCatalogFacets(): Promise<CatalogFacets> {
+  const payload = await getJson<{ data?: Partial<CatalogFacets> }>('/books/facets');
+  return {
+    categories: payload?.data?.categories ?? [],
+    price: {
+      min: payload?.data?.price?.min ?? 0,
+      max: payload?.data?.price?.max ?? 0
+    },
+    total: payload?.data?.total ?? 0
+  };
 }
 
 export async function getBookBySlug(slug: string): Promise<Book | null> {

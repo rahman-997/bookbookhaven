@@ -85,6 +85,24 @@ describe('Catalog and review scaling', () => {
     expect(response.body.meta).toMatchObject({ page: 1, limit: 1, total: 2, pages: 2 });
   });
 
+  it('returns stable catalog facets independently from active listing filters', async () => {
+    await Book.create([
+      { title: 'Engineering One', slug: 'engineering-one', author: 'One', description: '', price: 8, stock: 2, categories: ['engineering', 'career'], featured: false },
+      { title: 'Engineering Two', slug: 'engineering-two', author: 'Two', description: '', price: 22, stock: 2, categories: ['engineering'], featured: true },
+      { title: 'Fiction One', slug: 'fiction-one', author: 'Three', description: '', price: 15, stock: 2, categories: ['fiction'], featured: false }
+    ]);
+
+    const response = await request(app).get('/api/v1/books/facets');
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data.total).toBe(3);
+    expect(response.body.data.price).toEqual({ min: 8, max: 22 });
+    expect(response.body.data.categories).toEqual([
+      { name: 'engineering', count: 2 },
+      { name: 'career', count: 1 },
+      { name: 'fiction', count: 1 }
+    ]);
+  });
+
   it('paginates reviews while preserving aggregate rating metadata', async () => {
     const book = await Book.create({ title: 'Review Book', slug: 'review-book', author: 'Tester', description: '', price: 10, stock: 5, categories: ['test'], featured: false });
     const users = await User.create([

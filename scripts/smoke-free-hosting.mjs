@@ -10,6 +10,7 @@ const startedAt = Date.now();
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 function assert(condition, message) { if (!condition) throw new Error(message); }
 async function request(path, options = {}) { return fetch(`${baseUrl}${path}`, { redirect: 'manual', signal: AbortSignal.timeout(10_000), ...options }); }
+async function requestAbsolute(url, options = {}) { return fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(10_000), ...options }); }
 async function json(path, options = {}, expectedStatus = 200) {
   const response = await request(path, options);
   const text = await response.text();
@@ -82,8 +83,10 @@ try {
   assert(bookPage.status === 200, `book page expected 200, got ${bookPage.status}`);
   assert(bookPageText.includes('BookHaven edition'), 'book detail is missing BookHaven edition identity');
   assert(!bookPageText.includes('images.unsplash.com'), 'legacy Unsplash stock imagery leaked into book detail');
-
-  const socialImage = await request(`/books/${encodeURIComponent(firstBook.slug)}/opengraph-image`);
+  const ogImageMatch = bookPageText.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i) ?? bookPageText.match(/<meta[^>]+content="([^"]+)"[^>]+property="og:image"/i);
+  assert(ogImageMatch?.[1], 'book detail did not expose generated Open Graph image metadata');
+  const ogImageUrl = new URL(ogImageMatch[1].replaceAll('&amp;', '&'), baseUrl).toString();
+  const socialImage = await requestAbsolute(ogImageUrl);
   assert(socialImage.status === 200, `book social image expected 200, got ${socialImage.status}`);
   assert((socialImage.headers.get('content-type') ?? '').startsWith('image/png'), `book social image must be PNG, got ${socialImage.headers.get('content-type')}`);
   const socialImageBytes = await socialImage.arrayBuffer();
@@ -114,13 +117,11 @@ try {
   const setCookie = register.response.headers.get('set-cookie');
   assert(setCookie?.includes('bookhaven_token='), 'registration did not issue the session cookie');
   const cookie = setCookie.split(';', 1)[0];
-
   const me = await json('/api/backend/auth/me', { headers: { cookie } });
   assert(me.payload?.data?.email === email, 'authenticated session lookup failed');
 
   const addCart = await json('/api/backend/cart/items', { method: 'POST', headers: mutationHeaders(cookie), body: JSON.stringify({ bookId: firstBookId, quantity: 1 }) }, 201);
   assert(addCart.payload?.success === true, 'cart add did not report success');
-
   const cartBeforeCheckout = await json('/api/backend/cart', { headers: { cookie } });
   assert(cartBeforeCheckout.payload?.success === true, 'cart lookup did not report success');
   assert(Array.isArray(cartBeforeCheckout.payload?.data?.items) && cartBeforeCheckout.payload.data.items.length === 1, 'authenticated cart did not persist the item');
@@ -134,15 +135,12 @@ try {
 
   const cartAfterCheckout = await json('/api/backend/cart', { headers: { cookie } });
   assert(Array.isArray(cartAfterCheckout.payload?.data?.items) && cartAfterCheckout.payload.data.items.length === 0, 'checkout did not clear the cart');
-
   const orderHistory = await json('/api/backend/orders?page=1&limit=10', { headers: { cookie } });
   assert(orderHistory.payload?.success === true, 'order history did not report success');
   assert(Array.isArray(orderHistory.payload?.data) && orderHistory.payload.data.some((order) => order._id === orderId), 'created order missing from order history');
   assert(Number(orderHistory.payload?.meta?.total) === 1, 'order history total should be one for the smoke user');
-
   const orderDetail = await json(`/api/backend/orders/${encodeURIComponent(orderId)}`, { headers: { cookie } });
   assert(orderDetail.payload?.data?._id === orderId, 'order detail lookup did not return the created order');
-
   const bookAfterCheckout = await json(`/api/backend/books/${encodeURIComponent(firstBookId)}`);
   assert(Number(bookAfterCheckout.payload?.data?.stock) === originalStock - 1, 'checkout did not decrement inventory exactly once');
 

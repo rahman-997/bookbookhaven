@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import './accessibility.css';
 import Header from './components/Header';
 import MobileNav from './components/MobileNav';
 import Footer from './components/Footer';

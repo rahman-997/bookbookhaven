@@ -9,9 +9,30 @@ This document is the operational source of truth for the BookHaven portfolio dep
 - Node is pinned to `24.20.0` in repository/runtime configuration.
 - Backend and frontend dependencies are installed from committed lockfiles with `npm ci`.
 - CI and Render builds fail on high/critical runtime dependency audit findings.
-- Every production candidate must pass Compose validation, backend typecheck/tests/build, frontend typecheck/build, and standalone-runtime verification.
+- Every production candidate must pass Compose validation, backend typecheck/tests/build, frontend typecheck/build, standalone-runtime verification, and the full free-hosting runtime smoke flow.
 - Docker Node and Mongo images are pinned by digest to prevent silent image drift.
 - Dependabot tracks npm, GitHub Actions, Docker, and Docker Compose while avoiding unreviewed runtime-major jumps.
+
+## Full-stack runtime smoke gate
+
+CI runs `npm run smoke:free` after the production backend and Next.js standalone build has completed. The smoke harness boots the same free-hosting launcher used by Render with an isolated embedded MongoDB instance and seeded demo data, then exercises the application through the public Next.js surface.
+
+The gate verifies:
+
+- frontend and backend readiness through `/api/health`
+- explicit ephemeral/non-durable storage reporting for the isolated smoke database
+- homepage rendering
+- catalog and catalog-facet API reads
+- robots and sitemap generation
+- same-origin registration through the Next.js BFF
+- session-cookie propagation into authenticated backend requests
+- persistent cart creation
+- checkout/order creation through the standalone MongoDB compensation path
+- cart clearing after checkout
+- order-history and order-detail retrieval
+- exactly-once inventory decrement for the purchased book
+
+This is deliberately stronger than checking that `frontend/.next/standalone/server.js` merely exists: it validates that the built application can actually boot and complete a critical commerce flow.
 
 ## Health and storage durability
 
@@ -83,7 +104,7 @@ Digest updates within an approved release line should still pass the full CI gat
 
 ## Repository protection
 
-CI is configured for both pushes and pull requests. Repository-level branch protection/rulesets are account settings rather than application code. The repository should require the `CI / verify` check on `main` and disallow force pushes/deletion where the GitHub plan/settings permit it.
+CI is configured for both pushes and pull requests. Repository-level branch protection/rulesets are account settings rather than application code. The repository should require the `CI / verify` check and security-scanner checks on `main` and disallow force pushes/deletion where the GitHub plan/settings permit it.
 
 The connected automation used during this project can read repository protection state but is not authorized to change branch-protection settings. Do not treat the presence of CI alone as proof that repository-level enforcement is enabled.
 
@@ -91,11 +112,12 @@ The connected automation used during this project can read repository protection
 
 Before declaring a revision production-ready:
 
-1. Branch CI succeeds.
+1. Branch CI succeeds, including `smoke:free`.
 2. Pull-request CI succeeds.
-3. Squash merge to `main`.
-4. Post-merge CI succeeds.
-5. Render deploy for the exact merge commit reaches `live`.
-6. Render logs confirm the pinned Node runtime and successful build gate.
+3. CodeQL and Semgrep succeed on the pull request.
+4. Squash merge to `main`.
+5. Post-merge CI and security scanners succeed.
+6. Render deploy for the exact merge commit reaches `live`.
 7. Public `/api/health` returns HTTP 200.
-8. For durable production, health must additionally report `storageMode: external` and `durable: true`.
+8. Public catalog/facet endpoints return expected data.
+9. For durable production, health must additionally report `storageMode: external` and `durable: true`.

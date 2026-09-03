@@ -102,6 +102,14 @@ try {
   assert(homepage.status === 200, `homepage expected 200, got ${homepage.status}`);
   assert(homepageText.includes('Find the book that changes your'), 'homepage hero content missing');
   assert(homepageText.includes('Browse without the noise'), 'catalog section missing from homepage');
+  assert(homepageText.includes('href="#main-content"'), 'keyboard skip link missing');
+  assert(homepageText.includes('id="main-content"'), 'skip-link main target missing');
+
+  const focusedSearchPage = await request('/?focus=search');
+  const focusedSearchText = await focusedSearchPage.text();
+  assert(focusedSearchPage.status === 200, `focused search page expected 200, got ${focusedSearchPage.status}`);
+  assert(focusedSearchText.includes('id="catalog-search"'), 'catalog search focus target missing');
+  assert(/<input[^>]*id="catalog-search"[^>]*autofocus/i.test(focusedSearchText), 'catalog search focus request did not render autofocus');
 
   const catalog = await json('/api/backend/books?limit=2&sort=title');
   assert(catalog.payload?.success === true, 'catalog API did not report success');

@@ -38,6 +38,8 @@ export default function BookActions({ bookId, stock, compact = false }: { bookId
       <button type="button" disabled={busy !== ''} aria-busy={busy === 'wish'} onClick={() => call('wish')} className={`button button--ghost ${compact ? '!min-h-10 !px-3' : ''}`} aria-label="Save to wishlist"><HeartIcon size={17}/>{!compact ? <span>{busy === 'wish' ? 'Saving…' : 'Save'}</span> : null}</button>
     </div>
     <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{message}</span>
-    {message && !compact ? <p className={`mt-2 text-xs ${success ? 'text-emerald-300' : 'text-slate-400'}`}>{message} {message === 'Login required' ? <Link className="text-amber-200 underline underline-offset-4" href="/login">Sign in</Link> : null}</p> : null}
+    {message ? <p className={`mt-2 ${compact ? 'text-[10px] leading-4' : 'text-xs'} ${success ? 'text-emerald-300' : 'text-slate-400'}`}>
+      {message} {message === 'Login required' ? <Link className="text-amber-200 underline underline-offset-4" href="/login">Sign in</Link> : null}
+    </p> : null}
   </div>;
 }

@@ -4,13 +4,15 @@ import './accessibility.css';
 import Header from './components/Header';
 import MobileNav from './components/MobileNav';
 import Footer from './components/Footer';
+import { siteUrl } from '@/lib/site';
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
+  metadataBase: new URL(siteUrl),
   title: { default: 'BookHaven — Find your next chapter', template: '%s · BookHaven' },
   description: 'A premium, modern bookstore for discovering, saving, reviewing and ordering books.',
   applicationName: 'BookHaven',
-  openGraph: { title: 'BookHaven', description: 'Find your next chapter.', type: 'website', siteName: 'BookHaven' },
+  alternates: { canonical: '/' },
+  openGraph: { title: 'BookHaven', description: 'Find your next chapter.', type: 'website', siteName: 'BookHaven', url: '/' },
   twitter: { card: 'summary_large_image', title: 'BookHaven', description: 'Find your next chapter.' },
   robots: { index: true, follow: true }
 };

@@ -37,10 +37,34 @@ jobs:
         run: npm ci --include=dev --no-audit --no-fund
       - name: Audit backend runtime dependencies
         working-directory: backend
-        run: npm audit --omit=dev --audit-level=high
+        shell: bash
+        run: |
+          set +e
+          audit_output="$(timeout 120s npm audit --omit=dev --audit-level=high 2>&1)"
+          audit_status=$?
+          set -e
+          printf '%s\n' "$audit_output"
+          if [ "$audit_status" -eq 0 ]; then exit 0; fi
+          if [ "$audit_status" -eq 124 ] || printf '%s\n' "$audit_output" | grep -Eq 'Service Unavailable|audit endpoint returned an error|ECONNRESET|ETIMEDOUT|EAI_AGAIN'; then
+            echo '::warning::npm audit service is temporarily unavailable for backend dependencies; security scanners and Dependabot remain active.'
+            exit 0
+          fi
+          exit "$audit_status"
       - name: Audit frontend runtime dependencies
         working-directory: frontend
-        run: npm audit --omit=dev --audit-level=high
+        shell: bash
+        run: |
+          set +e
+          audit_output="$(timeout 120s npm audit --omit=dev --audit-level=high 2>&1)"
+          audit_status=$?
+          set -e
+          printf '%s\n' "$audit_output"
+          if [ "$audit_status" -eq 0 ]; then exit 0; fi
+          if [ "$audit_status" -eq 124 ] || printf '%s\n' "$audit_output" | grep -Eq 'Service Unavailable|audit endpoint returned an error|ECONNRESET|ETIMEDOUT|EAI_AGAIN'; then
+            echo '::warning::npm audit service is temporarily unavailable for frontend dependencies; security scanners and Dependabot remain active.'
+            exit 0
+          fi
+          exit "$audit_status"
       - name: Verify frontend CSS accessibility and paint budget
         run: node scripts/verify-frontend-css.mjs
       - name: Typecheck backend

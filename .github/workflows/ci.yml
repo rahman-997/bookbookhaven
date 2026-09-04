@@ -37,10 +37,20 @@ jobs:
         run: npm ci --include=dev --no-audit --no-fund
       - name: Audit backend runtime dependencies
         working-directory: backend
-        run: npm audit --omit=dev --audit-level=high
+        run: |
+          npm audit --omit=dev --audit-level=high || {
+            echo "Initial backend audit failed; retrying once in case the npm registry is transiently unavailable."
+            sleep 20
+            npm audit --omit=dev --audit-level=high
+          }
       - name: Audit frontend runtime dependencies
         working-directory: frontend
-        run: npm audit --omit=dev --audit-level=high
+        run: |
+          npm audit --omit=dev --audit-level=high || {
+            echo "Initial frontend audit failed; retrying once in case the npm registry is transiently unavailable."
+            sleep 20
+            npm audit --omit=dev --audit-level=high
+          }
       - name: Verify frontend CSS accessibility and paint budget
         run: node scripts/verify-frontend-css.mjs
       - name: Typecheck backend

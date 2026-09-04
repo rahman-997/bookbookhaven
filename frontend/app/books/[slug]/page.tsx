@@ -6,6 +6,7 @@ import BookCard from '@/app/components/BookCard';
 import BookCover from '@/app/components/BookCover';
 import { ArrowRightIcon, ChevronLeftIcon, ShieldIcon, SparkleIcon, StarIcon } from '@/app/components/Icons';
 import { getBookBySlug, getRelatedBooks, getReviews } from '@/lib/api';
+import { siteUrl } from '@/lib/site';
 import ReviewPanel from './ReviewPanel';
 
 function categoryLabel(value: string) {
@@ -31,7 +32,6 @@ export default async function BookPage({ params }: { params: Promise<{ slug: str
   const book = await getBookBySlug(slug);
   if (!book) notFound();
   const [reviews, related] = await Promise.all([getReviews(book._id), getRelatedBooks(book)]);
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
   const jsonLd = JSON.stringify({
     '@context': 'https://schema.org',
     '@type': 'Book',

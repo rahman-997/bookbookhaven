@@ -34,6 +34,7 @@ export default function BookCover({ book, className = '', priority = false }: { 
 
   const tone = toneFor(book.slug || book.title);
   const primaryCategory = book.categories[0] ? label(book.categories[0]) : 'BookHaven edition';
+  const editionReference = book.isbn ? book.isbn.slice(-6) : 'BOOKHAVEN';
 
   return <div className={`book-cover book-cover--edition cover-tone-${tone} ${className}`} role="img" aria-label={`${book.title} by ${book.author}, BookHaven edition cover`}>
     <span className="book-cover__halo" aria-hidden="true" />
@@ -50,7 +51,7 @@ export default function BookCover({ book, className = '', priority = false }: { 
       </div>
       <div className="book-cover__footer">
         <span>{book.featured ? 'Curator select' : 'Library edition'}</span>
-        <span>{book.isbn ? `ISBN ${book.isbn.slice(-6)}` : 'BOOKHAVEN'}</span>
+        <span>{book.isbn ? `Ref ${editionReference}` : editionReference}</span>
       </div>
     </div>
   </div>;

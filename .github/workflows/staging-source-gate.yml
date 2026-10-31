@@ -1,0 +1,46 @@
+name: BookHaven staging source gate
+
+on:
+  push:
+    branches:
+      - staging/bookhaven-v5-4
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - name: Reject old or unsafe staging source
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, existsSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
+          if (manifest.name !== 'bookhaven' || manifest.version !== '5.4.0') {
+            console.error('STAGING BLOCKED: exact BookHaven 5.4.0 source has not been uploaded');
+            process.exit(1);
+          }
+          for (const file of ['render-staging.yaml', 'scripts/staging-smoke.mjs', 'scripts/staging-config.mjs']) {
+            if (!existsSync(file)) {
+              console.error('STAGING BLOCKED: missing required staging source', file);
+              process.exit(1);
+            }
+          }
+          const blueprint = readFileSync('render-staging.yaml', 'utf8');
+          if (!/^    name: bookhaven-api-staging$/m.test(blueprint) ||
+              !/^    plan: free$/m.test(blueprint) ||
+              !/^    autoDeployTrigger: off$/m.test(blueprint) ||
+              /AUTO_SEED\s*[:=]|initialDeployHook|preDeployCommand/.test(blueprint)) {
+            console.error('STAGING BLOCKED: unsafe or unexpected Render Blueprint');
+            process.exit(1);
+          }
+          console.log('Verified isolated BookHaven 5.4.0 staging source and free Render settings');
+          NODE

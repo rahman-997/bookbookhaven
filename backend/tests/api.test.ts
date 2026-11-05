@@ -208,6 +208,72 @@ describe('BookHaven API', () => {
     expect((await Book.findById(book._id).lean())?.stock).toBe(2);
   });
 
+  it('unlocks a standalone MongoDB cart after stock validation fails, allowing a retry', async () => {
+    const { token, user } = await register('checkout-retry@example.com');
+    const auth = { Authorization: `Bearer ${token}` };
+    const book = await createBook({ stock: 2 });
+    const payload = { shippingAddress: '123 Test Street, Test City', paymentMethod: 'manual' };
+    expect((await request(app).post('/api/v1/cart/items').set(auth).send({ bookId: String(book._id), quantity: 2 })).statusCode).toBe(201);
+
+    await Book.updateOne({ _id: book._id }, { $set: { stock: 1 } });
+    const rejected = await request(app).post('/api/v1/orders').set(auth).send(payload);
+    expect(rejected.statusCode).toBe(409);
+    expect(rejected.body.error.code).toBe('INSUFFICIENT_STOCK');
+    const cart = await Cart.findOne({ user: user.id }).lean();
+    expect(cart?.checkoutLockedAt).toBeNull();
+    expect(cart?.items).toHaveLength(1);
+    expect(await Order.countDocuments()).toBe(0);
+
+    await Book.updateOne({ _id: book._id }, { $set: { stock: 3 } });
+    const retried = await request(app).post('/api/v1/orders').set(auth).send(payload);
+    expect(retried.statusCode).toBe(201);
+    expect((await Book.findById(book._id).lean())?.stock).toBe(1);
+    expect((await Cart.findOne({ user: user.id }).lean())?.items).toHaveLength(0);
+  });
+
+  it('restores a partial stock decrement when the next conditional write loses a race', async () => {
+    const { token, user } = await register('checkout-partial-rollback@example.com');
+    const auth = { Authorization: `Bearer ${token}` };
+    const first = await createBook({ slug: 'rollback-first', stock: 4 });
+    const second = await createBook({ slug: 'rollback-second', stock: 4 });
+    for (const book of [first, second]) {
+      expect((await request(app).post('/api/v1/cart/items').set(auth).send({ bookId: String(book._id), quantity: 1 })).statusCode).toBe(201);
+    }
+
+    const originalUpdateOne = Book.updateOne.bind(Book);
+    const updateSpy = jest.spyOn(Book, 'updateOne');
+    let decrements = 0;
+    updateSpy.mockImplementation(((filter, update, options) => {
+      const change = (update as { $inc?: { stock?: number } })?.$inc?.stock;
+      if (change === -1 && ++decrements === 2) {
+        return Promise.resolve({ modifiedCount: 0, matchedCount: 0 }) as unknown as ReturnType<typeof Book.updateOne>;
+      }
+      return originalUpdateOne(filter, update, options);
+    }) as typeof Book.updateOne);
+
+    let failedStatus = 0;
+    let failedCode = '';
+    try {
+      const failed = await request(app).post('/api/v1/orders').set(auth).send({
+        shippingAddress: '123 Test Street, Test City',
+        paymentMethod: 'manual'
+      });
+      failedStatus = failed.statusCode;
+      failedCode = failed.body.error.code;
+    } finally {
+      updateSpy.mockRestore();
+    }
+
+    expect(decrements).toBe(2);
+    expect(failedStatus).toBe(409);
+    expect(failedCode).toBe('STOCK_CHANGED');
+    expect((await Book.findById(first._id).lean())?.stock).toBe(4);
+    expect((await Book.findById(second._id).lean())?.stock).toBe(4);
+    expect((await Cart.findOne({ user: user.id }).lean())?.checkoutLockedAt).toBeNull();
+    expect((await Cart.findOne({ user: user.id }).lean())?.items).toHaveLength(2);
+    expect(await Order.countDocuments()).toBe(0);
+  });
+
   it('enforces order transitions and restores stock only once on cancellation', async () => {
     const { token } = await registerAdmin('order@example.com');
     const book = await createBook();

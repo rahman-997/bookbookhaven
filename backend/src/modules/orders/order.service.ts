@@ -118,7 +118,8 @@ async function buildCheckoutItems(cart: Awaited<ReturnType<typeof acquireCheckou
 
 async function decrementInventory(
   items: Array<{ book: mongoose.Types.ObjectId; title: string; quantity: number }>,
-  session?: ClientSession
+  session?: ClientSession,
+  onDecrement?: (entry: { id: string; quantity: number }) => void
 ) {
   const decremented: Array<{ id: string; quantity: number }> = [];
   for (const item of items) {
@@ -130,7 +131,11 @@ async function decrementInventory(
     if (result.modifiedCount !== 1) {
       throw new HttpError(409, `${item.title} stock changed. Please review your cart.`, undefined, 'STOCK_CHANGED');
     }
-    decremented.push({ id: String(item.book), quantity: item.quantity });
+    const entry = { id: String(item.book), quantity: item.quantity };
+    decremented.push(entry);
+    // Standalone MongoDB cannot roll back a partial batch. Record each change
+    // immediately, before the next update can fail, for compensating cleanup.
+    onDecrement?.(entry);
   }
   return decremented;
 }
@@ -154,12 +159,16 @@ async function createWithTransaction(userId: string, shippingAddress: string, pa
 
 async function createWithCompensation(userId: string, shippingAddress: string, paymentMethod: PaymentMethod) {
   const cart = await acquireCheckoutCart(userId);
-  const { originalCartItems, bookIds, items, subtotal } = await buildCheckoutItems(cart);
+  const originalCartItems = cart.items.map((item) => ({ book: item.book, quantity: item.quantity, unitPrice: item.unitPrice }));
+  const bookIds = originalCartItems.map((item) => item.book);
   const decremented: Array<{ id: string; quantity: number }> = [];
   let orderId: string | null = null;
 
   try {
-    decremented.push(...await decrementInventory(items));
+    // Validation must run under the same cleanup path as inventory writes.
+    // Otherwise an out-of-stock item leaves the cart locked for five minutes.
+    const { items, subtotal } = await buildCheckoutItems(cart);
+    await decrementInventory(items, undefined, (entry) => decremented.push(entry));
     const order = await Order.create({ user: userId, items, subtotal, status: 'pending', paymentMethod, shippingAddress });
     orderId = String(order._id);
     cart.items = [];

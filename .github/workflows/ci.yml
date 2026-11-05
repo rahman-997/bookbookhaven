@@ -95,8 +95,17 @@ jobs:
       - name: Typecheck backend
         working-directory: backend
         run: npm run typecheck
+      - name: Prepare isolated MongoDB test binary before Jest timeouts
+        working-directory: backend
+        env:
+          MONGOMS_DOWNLOAD_DIR: /tmp/bookhaven-mongodb-binaries
+        run: |
+          node --check scripts/prepare-test-mongo.mjs
+          timeout 120s node scripts/prepare-test-mongo.mjs
       - name: Test backend
         working-directory: backend
+        env:
+          MONGOMS_DOWNLOAD_DIR: /tmp/bookhaven-mongodb-binaries
         run: npm test
       - name: Build backend
         working-directory: backend

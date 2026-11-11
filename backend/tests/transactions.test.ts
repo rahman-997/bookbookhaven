@@ -15,11 +15,15 @@ const mongoDownloadDir = join(tmpdir(), 'bookhaven-mongodb-binaries');
 
 beforeAll(async () => {
   await mkdir(mongoDownloadDir, { recursive: true });
-  replicaSet = await MongoMemoryReplSet.create({
-    binary: { downloadDir: mongoDownloadDir },
-    replSet: { count: 1 }
-  });
-  await mongoose.connect(replicaSet.getUri());
+  if (process.env.BOOKHAVEN_TEST_REPLICA_URI) {
+    await mongoose.connect(process.env.BOOKHAVEN_TEST_REPLICA_URI, { serverSelectionTimeoutMS: 10_000 });
+  } else {
+    replicaSet = await MongoMemoryReplSet.create({
+      binary: { downloadDir: mongoDownloadDir },
+      replSet: { count: 1 }
+    });
+    await mongoose.connect(replicaSet.getUri());
+  }
   await Promise.all([User.syncIndexes(), Book.syncIndexes(), Cart.syncIndexes(), Order.syncIndexes()]);
 });
 

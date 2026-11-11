@@ -179,9 +179,16 @@ async function createWithCompensation(userId: string, shippingAddress: string, p
     if (orderId) await Order.deleteOne({ _id: orderId }).catch(() => undefined);
     await Promise.allSettled(decremented.map((item) => Book.updateOne({ _id: item.id }, { $inc: { stock: item.quantity } })));
 
-    const survivingBooks = await Book.find({ _id: { $in: bookIds } }).select('_id').lean().catch(() => []);
-    const survivingIds = new Set(survivingBooks.map((book) => String(book._id)));
-    cart.items = originalCartItems.filter((item) => survivingIds.has(String(item.book)));
+    // A transient read failure during recovery must never silently empty a
+    // customer's cart. Keep the original items when their existence is unknown.
+    cart.items = originalCartItems;
+    try {
+      const survivingBooks = await Book.find({ _id: { $in: bookIds } }).select('_id').lean();
+      const survivingIds = new Set(survivingBooks.map((book) => String(book._id)));
+      cart.items = originalCartItems.filter((item) => survivingIds.has(String(item.book)));
+    } catch {
+      // Leave original items intact; a later retry can resolve stale products.
+    }
     cart.checkoutLockedAt = null;
     await cart.save().catch(() => undefined);
     throw error;

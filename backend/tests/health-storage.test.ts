@@ -13,8 +13,12 @@ const originalStorageMode = process.env.BOOKHAVEN_STORAGE_MODE;
 
 beforeAll(async () => {
   await mkdir(mongoDownloadDir, { recursive: true });
-  mongo = await MongoMemoryServer.create({ binary: { downloadDir: mongoDownloadDir } });
-  await mongoose.connect(mongo.getUri());
+  if (process.env.BOOKHAVEN_TEST_MONGO_URI) {
+    await mongoose.connect(process.env.BOOKHAVEN_TEST_MONGO_URI, { serverSelectionTimeoutMS: 10_000 });
+  } else {
+    mongo = await MongoMemoryServer.create({ binary: { downloadDir: mongoDownloadDir } });
+    await mongoose.connect(mongo.getUri());
+  }
 });
 
 afterEach(() => {

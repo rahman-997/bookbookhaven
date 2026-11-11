@@ -106,7 +106,8 @@ jobs:
         working-directory: backend
         env:
           MONGOMS_DOWNLOAD_DIR: /tmp/bookhaven-mongodb-binaries
-        run: npm test
+        # Bail after the first failing suite, but still run all suites on a clean build.
+        run: npm test -- --bail=1
       - name: Build backend
         working-directory: backend
         run: npm run build

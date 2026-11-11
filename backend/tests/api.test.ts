@@ -231,6 +231,46 @@ describe('BookHaven API', () => {
     expect((await Cart.findOne({ user: user.id }).lean())?.items).toHaveLength(0);
   });
 
+  it('preserves cart items when recovery cannot read available products', async () => {
+    const { token, user } = await register('checkout-lookup-outage@example.com');
+    const auth = { Authorization: `Bearer ${token}` };
+    const book = await createBook({ slug: 'lookup-outage', stock: 2 });
+    const payload = { shippingAddress: '123 Test Street, Test City', paymentMethod: 'manual' };
+    expect((await request(app).post('/api/v1/cart/items').set(auth).send({
+      bookId: String(book._id), quantity: 2
+    })).statusCode).toBe(201);
+    // Force stock validation to fail, then simulate a temporary MongoDB
+    // read outage only during the cart cleanup existence check.
+    await Book.updateOne({ _id: book._id }, { $set: { stock: 1 } });
+    const originalFind = Book.find.bind(Book);
+    const spy = jest.spyOn(Book, 'find');
+    let reads = 0;
+    spy.mockImplementation(((filter) => {
+      reads++;
+      if (reads === 2) throw new Error('simulated cleanup lookup outage');
+      return originalFind(filter);
+    }) as typeof Book.find);
+
+    let failedStatus = 0;
+    let failedCode = '';
+    try {
+      const failed = await request(app).post('/api/v1/orders').set(auth).send(payload);
+      failedStatus = failed.statusCode;
+      failedCode = failed.body.error.code;
+    } finally {
+      spy.mockRestore();
+    }
+    expect(reads).toBe(2);
+    expect(failedStatus).toBe(409);
+    expect(failedCode).toBe('INSUFFICIENT_STOCK');
+    const recoveredCart = await Cart.findOne({ user: user.id }).lean();
+    expect(recoveredCart?.checkoutLockedAt).toBeNull();
+    expect(recoveredCart?.items).toHaveLength(1);
+    expect(recoveredCart?.items[0].quantity).toBe(2);
+    expect(await Order.countDocuments()).toBe(0);
+    expect((await Book.findById(book._id).lean())?.stock).toBe(1);
+  });
+
   it('restores a partial stock decrement when the next conditional write loses a race', async () => {
     const { token, user } = await register('checkout-partial-rollback@example.com');
     const auth = { Authorization: `Bearer ${token}` };

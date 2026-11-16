@@ -118,9 +118,10 @@ async function buildCheckoutItems(cart: Awaited<ReturnType<typeof acquireCheckou
 
 async function decrementInventory(
   items: Array<{ book: mongoose.Types.ObjectId; title: string; quantity: number }>,
-  session?: ClientSession
+  session?: ClientSession,
+  decremented: Array<{ id: string; quantity: number }> = []
 ) {
-  const decremented: Array<{ id: string; quantity: number }> = [];
+  // Record every successful write immediately, including when a later write fails.
   for (const item of items) {
     const result = await Book.updateOne(
       { _id: item.book, stock: { $gte: item.quantity } },
@@ -154,12 +155,15 @@ async function createWithTransaction(userId: string, shippingAddress: string, pa
 
 async function createWithCompensation(userId: string, shippingAddress: string, paymentMethod: PaymentMethod) {
   const cart = await acquireCheckoutCart(userId);
-  const { originalCartItems, bookIds, items, subtotal } = await buildCheckoutItems(cart);
+  const originalCartItems = cart.items.map((item) => ({ book: item.book, quantity: item.quantity, unitPrice: item.unitPrice }));
+  const bookIds = originalCartItems.map((item) => item.book);
   const decremented: Array<{ id: string; quantity: number }> = [];
   let orderId: string | null = null;
 
   try {
-    decremented.push(...await decrementInventory(items));
+    // Validation must be inside the protected block so a failed checkout releases its cart lock.
+    const { items, subtotal } = await buildCheckoutItems(cart);
+    await decrementInventory(items, undefined, decremented);
     const order = await Order.create({ user: userId, items, subtotal, status: 'pending', paymentMethod, shippingAddress });
     orderId = String(order._id);
     cart.items = [];

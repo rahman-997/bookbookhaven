@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import mongoose from 'mongoose';
+import { mongoTestOptions } from './mongo-options';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import request from 'supertest';
 import { app } from '../src/app';
@@ -16,13 +17,13 @@ const mongoDownloadDir = join(tmpdir(), 'bookhaven-mongodb-binaries');
 beforeAll(async () => {
   await mkdir(mongoDownloadDir, { recursive: true });
   if (process.env.BOOKHAVEN_TEST_REPLICA_URI) {
-    await mongoose.connect(process.env.BOOKHAVEN_TEST_REPLICA_URI, { serverSelectionTimeoutMS: 10_000 });
+    await mongoose.connect(process.env.BOOKHAVEN_TEST_REPLICA_URI, mongoTestOptions);
   } else {
     replicaSet = await MongoMemoryReplSet.create({
       binary: { downloadDir: mongoDownloadDir },
       replSet: { count: 1 }
     });
-    await mongoose.connect(replicaSet.getUri());
+    await mongoose.connect(replicaSet.getUri(), mongoTestOptions);
   }
   await Promise.all([User.syncIndexes(), Book.syncIndexes(), Cart.syncIndexes(), Order.syncIndexes()]);
 });

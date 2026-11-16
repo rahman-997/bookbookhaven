@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import mongoose, { Types } from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import request from 'supertest';
+import { mongoTestOptions } from './mongo-options';
 import { app } from '../src/app';
 import { User } from '../src/modules/auth/user.model';
 import { Order } from '../src/modules/orders/order.model';
@@ -14,10 +15,10 @@ const mongoDownloadDir = join(tmpdir(), 'bookhaven-mongodb-binaries');
 beforeAll(async () => {
   await mkdir(mongoDownloadDir, { recursive: true });
   if (process.env.BOOKHAVEN_TEST_MONGO_URI) {
-    await mongoose.connect(process.env.BOOKHAVEN_TEST_MONGO_URI, { serverSelectionTimeoutMS: 10_000 });
+    await mongoose.connect(process.env.BOOKHAVEN_TEST_MONGO_URI, mongoTestOptions);
   } else {
     mongo = await MongoMemoryServer.create({ binary: { downloadDir: mongoDownloadDir } });
-    await mongoose.connect(mongo.getUri());
+    await mongoose.connect(mongo.getUri(), mongoTestOptions);
   }
   await Promise.all([User.syncIndexes(), Order.syncIndexes()]);
 });

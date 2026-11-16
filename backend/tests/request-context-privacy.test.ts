@@ -5,7 +5,7 @@ describe('request logging privacy', () => {
   it('does not log query strings on completed requests', async () => {
     jest.resetModules();
     jest.doMock('../src/config/env', () => ({ env: { NODE_ENV: 'production' } }));
-    const { requestContext } = await import('../src/middleware/request-context');
+    const { requestContext } = require('../src/middleware/request-context') as typeof import('../src/middleware/request-context');
     const response = new EventEmitter() as Response;
     response.locals = {};
     response.statusCode = 404;

@@ -318,6 +318,50 @@ describe('BookHaven API', () => {
     expect(await Order.countDocuments()).toBe(0);
   });
 
+  it('rolls back partial cancellation inventory restoration and permits a safe retry', async () => {
+    const { token } = await registerAdmin('cancel-recovery@example.com');
+    const auth = { Authorization: `Bearer ${token}` };
+    const first = await createBook({ slug: 'cancel-recovery-first', stock: 4 });
+    const second = await createBook({ slug: 'cancel-recovery-second', stock: 4 });
+    for (const book of [first, second]) {
+      expect((await request(app).post('/api/v1/cart/items').set(auth).send({ bookId: String(book._id), quantity: 1 })).statusCode).toBe(201);
+    }
+    const checkout = await request(app).post('/api/v1/orders').set(auth).send({
+      shippingAddress: '123 Test Street, Test City', paymentMethod: 'manual'
+    });
+    expect(checkout.statusCode).toBe(201);
+    const id = checkout.body.data._id;
+
+    const originalUpdate = Book.updateOne.bind(Book);
+    const spy = jest.spyOn(Book, 'updateOne');
+    let restorations = 0;
+    spy.mockImplementation(((filter, update, options) => {
+      const change = (update as { $inc?: { stock?: number } })?.$inc?.stock;
+      if (change === 1 && ++restorations === 2) {
+        return Promise.reject(new Error('Synthetic inventory write interruption')) as unknown as ReturnType<typeof Book.updateOne>;
+      }
+      return originalUpdate(filter, update, options);
+    }) as typeof Book.updateOne);
+    try {
+      const cancelled = await request(app).patch(`/api/v1/orders/admin/${id}/status`).set(auth).send({ status: 'cancelled' });
+      expect(cancelled.statusCode).toBe(409);
+      expect(cancelled.body.error.code).toBe('INVENTORY_RESTORE_FAILED');
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(restorations).toBe(2);
+    expect((await Order.findById(id).lean())?.status).toBe('pending');
+    expect((await Book.findById(first._id).lean())?.stock).toBe(3);
+    expect((await Book.findById(second._id).lean())?.stock).toBe(3);
+
+    const retried = await request(app).patch(`/api/v1/orders/admin/${id}/status`).set(auth).send({ status: 'cancelled' });
+    expect(retried.statusCode).toBe(200);
+    expect((await Order.findById(id).lean())?.status).toBe('cancelled');
+    expect((await Book.findById(first._id).lean())?.stock).toBe(4);
+    expect((await Book.findById(second._id).lean())?.stock).toBe(4);
+  });
+
   it('enforces order transitions and restores stock only once on cancellation', async () => {
     const { token } = await registerAdmin('order@example.com');
     const book = await createBook();

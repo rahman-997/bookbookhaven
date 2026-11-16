@@ -17,8 +17,12 @@ const mongoDownloadDir = join(tmpdir(), 'bookhaven-mongodb-binaries');
 
 beforeAll(async () => {
   await mkdir(mongoDownloadDir, { recursive: true });
-  mongo = await MongoMemoryServer.create({ binary: { downloadDir: mongoDownloadDir } });
-  await mongoose.connect(mongo.getUri());
+  if (process.env.BOOKHAVEN_TEST_MONGO_URI) {
+    await mongoose.connect(process.env.BOOKHAVEN_TEST_MONGO_URI, { serverSelectionTimeoutMS: 10_000 });
+  } else {
+    mongo = await MongoMemoryServer.create({ binary: { downloadDir: mongoDownloadDir } });
+    await mongoose.connect(mongo.getUri());
+  }
   await Promise.all([User.syncIndexes(), Book.syncIndexes(), Cart.syncIndexes(), Order.syncIndexes(), Review.syncIndexes(), Wishlist.syncIndexes()]);
 });
 afterEach(async () => {

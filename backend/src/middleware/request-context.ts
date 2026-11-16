@@ -11,7 +11,7 @@ export function requestContext(req: Request, res: Response, next: NextFunction) 
   res.on('finish', () => {
     if (env.NODE_ENV === 'test') return;
     const durationMs = Math.round((performance.now() - started) * 10) / 10;
-    console.log(JSON.stringify({ level: 'info', requestId, method: req.method, path: req.originalUrl, status: res.statusCode, durationMs }));
+    console.log(JSON.stringify({ level: 'info', requestId, method: req.method, path: req.path, status: res.statusCode, durationMs }));
   });
   next();
 }

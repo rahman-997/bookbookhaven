@@ -26,3 +26,12 @@ npm test --prefix backend
 npm run build --prefix backend
 ```
 Use a disposable test MongoDB. Do not merge/deploy until all gates succeed. If opening a PR will trigger GitHub Actions, verify the account's free CI quota before doing so. No paid services are authorized.
+
+
+## Follow-up audit — 2026-11-18
+- Found an additional correctness issue: `mongoTransactionsAvailable()` previously cached a single global capability boolean. Switching from a standalone MongoDB connection to a replica set in the same Node process could therefore choose the wrong checkout path.
+- Replaced that cache with a `WeakMap` keyed to the active MongoDB database object. Transient detection failures are not cached, allowing later retries.
+- Added `backend/tests/transaction-detection.test.ts`: standalone → replica-set capability refresh and transient discovery failure retry.
+- Total new regression cases in the branch: **4** (2 checkout + 2 transaction detection). **All four still require execution with the project's Jest/TypeScript dependencies.**
+- Reviewed the branch through GitHub after commits; `main` remains unchanged. No workflow was started.
+- Scope warning: the MongoDB fallback remains best-effort, not genuinely transactional. Independent staged concurrency and recovery testing are required before commercial launch.

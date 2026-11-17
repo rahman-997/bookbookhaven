@@ -35,3 +35,14 @@ Use a disposable test MongoDB. Do not merge/deploy until all gates succeed. If o
 - Total new regression cases in the branch: **4** (2 checkout + 2 transaction detection). **All four still require execution with the project's Jest/TypeScript dependencies.**
 - Reviewed the branch through GitHub after commits; `main` remains unchanged. No workflow was started.
 - Scope warning: the MongoDB fallback remains best-effort, not genuinely transactional. Independent staged concurrency and recovery testing are required before commercial launch.
+
+
+## Additional verification — 2026-11-18 (isolated, no database)
+- TypeScript transpilation of the current `transactions.ts` module succeeded using an already installed local TypeScript compiler.
+- A local Node.js VM executed the transpiled module with a mocked Mongoose connection; four direct assertions passed:
+  1. No database connection returns false.
+  2. Standalone MongoDB returns false and a successful discovery result is cached.
+  3. Switching to a replica-set database object returns true.
+  4. A transient discovery error is retried and a sharded topology is detected.
+- Added two additional Jest regression cases for missing connection and cached sharded topology. The branch now contains **six new Jest test cases** (two checkout and four transaction detection); they are **not yet executed** against the actual installed project dependencies.
+- Important: the isolated VM checks are **not MongoDB/Jest integration tests** and do not demonstrate TypeScript type correctness or production readiness.

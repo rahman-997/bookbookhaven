@@ -1,11 +1,11 @@
 import mongoose from 'mongoose';
 import { mongoTransactionsAvailable } from '../src/database/transactions';
 
-type FakeDb = { admin: () => { command: jest.Mock<Promise<unknown>, [unknown]> } };
+type FakeDb = { admin: () => { command: (command: unknown) => Promise<unknown> } };
 
 function fakeDatabase(hello: () => Promise<unknown>): FakeDb {
   return {
-    admin: () => ({ command: jest.fn(async () => hello()) })
+    admin: () => ({ command: async (_command: unknown) => hello() })
   };
 }
 

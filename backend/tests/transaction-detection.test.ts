@@ -28,6 +28,27 @@ describe('MongoDB transaction discovery', () => {
     });
   }
 
+  it('fails closed when no database connection exists', async () => {
+    Object.defineProperty(mongoose.connection, 'db', {
+      configurable: true,
+      writable: true,
+      value: undefined
+    });
+    expect(await mongoTransactionsAvailable()).toBe(false);
+  });
+
+  it('caches successful capability discovery per database object', async () => {
+    let checks = 0;
+    const db = fakeDatabase(async () => {
+      checks += 1;
+      return { msg: 'isdbgrid' };
+    });
+    useDb(db);
+    expect(await mongoTransactionsAvailable()).toBe(true);
+    expect(await mongoTransactionsAvailable()).toBe(true);
+    expect(checks).toBe(1);
+  });
+
   it('does not reuse a standalone result after switching to a replica set', async () => {
     const standalone = fakeDatabase(async () => ({ isWritablePrimary: true }));
     const replica = fakeDatabase(async () => ({ setName: 'rs0' }));

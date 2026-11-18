@@ -3,7 +3,9 @@ import type { NextFunction, Request, Response } from 'express';
 import { env } from '../config/env';
 
 export function requestContext(req: Request, res: Response, next: NextFunction) {
-  const requestId = req.header('x-request-id')?.slice(0, 128) || randomUUID();
+  const incomingId = req.header('x-request-id');
+  // Untrusted IDs must never be truncated into collisions or contain unsafe header characters.
+  const requestId = incomingId && /^[A-Za-z0-9._:-]{1,128}$/.test(incomingId) ? incomingId : randomUUID();
   res.setHeader('x-request-id', requestId);
   res.locals.requestId = requestId;
   const started = performance.now();

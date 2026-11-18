@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import * as os from 'node:os';
 import { join } from 'node:path';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
@@ -13,12 +13,16 @@ import { Review } from '../src/modules/reviews/review.model';
 import { Wishlist } from '../src/modules/wishlist/wishlist.model';
 
 let mongo: MongoMemoryServer | undefined;
-const mongoDownloadDir = join(tmpdir(), 'bookhaven-mongodb-binaries');
+const mongoDownloadDir = join(os.tmpdir(), 'bookhaven-mongodb-binaries');
 
 beforeAll(async () => {
   await mkdir(mongoDownloadDir, { recursive: true });
-  mongo = await MongoMemoryServer.create({ binary: { downloadDir: mongoDownloadDir } });
-  await mongoose.connect(mongo.getUri());
+  if (process.env.BOOKHAVEN_TEST_MONGO_URI) {
+    await mongoose.connect(process.env.BOOKHAVEN_TEST_MONGO_URI, { serverSelectionTimeoutMS: 10_000, runtimeAdapters: { os } });
+  } else {
+    mongo = await MongoMemoryServer.create({ binary: { downloadDir: mongoDownloadDir } });
+    await mongoose.connect(mongo.getUri(), { runtimeAdapters: { os } });
+  }
   await Promise.all([User.syncIndexes(), Book.syncIndexes(), Cart.syncIndexes(), Order.syncIndexes(), Review.syncIndexes(), Wishlist.syncIndexes()]);
 });
 afterEach(async () => {
@@ -270,4 +274,63 @@ describe('BookHaven API', () => {
     expect((await Wishlist.findOne({ user: user!._id }).lean())?.books).toHaveLength(0);
     expect((await Cart.findOne({ user: user!._id }).lean())?.items).toHaveLength(0);
   });
+  it('unlocks the cart immediately when item validation rejects checkout', async () => {
+    const { token, user } = await register('failed-validation@example.com');
+    const book = await createBook({ stock: 3 });
+    const auth = { Authorization: `Bearer ${token}` };
+    expect((await request(app).post('/api/v1/cart/items').set(auth)
+      .send({ bookId: String(book._id), quantity: 2 })).statusCode).toBe(201);
+
+    // Another order may consume stock after the item was added to the cart.
+    await Book.updateOne({ _id: book._id }, { $set: { stock: 1 } });
+    const failed = await request(app).post('/api/v1/orders').set(auth)
+      .send({ shippingAddress: '123 Test Street, Istanbul', paymentMethod: 'manual' });
+    expect(failed.statusCode).toBe(409);
+    expect(failed.body.error.code).toBe('INSUFFICIENT_STOCK');
+    expect((await Cart.findOne({ user: user.id }).lean())?.checkoutLockedAt).toBeNull();
+    expect((await request(app).patch(`/api/v1/cart/items/${book._id}`).set(auth)
+      .send({ quantity: 1 })).statusCode).toBe(200);
+    expect(await Order.countDocuments()).toBe(0);
+  });
+
+  it('restores earlier stock decrements if a later book fails during fallback checkout', async () => {
+    const { token, user } = await register('partial-inventory@example.com');
+    const first = await createBook({ title: 'First Book', slug: 'first-book', stock: 4 });
+    const second = await createBook({ title: 'Second Book', slug: 'second-book', stock: 4 });
+    const auth = { Authorization: `Bearer ${token}` };
+    for (const book of [first, second]) {
+      expect((await request(app).post('/api/v1/cart/items').set(auth)
+        .send({ bookId: String(book._id), quantity: 2 })).statusCode).toBe(201);
+    }
+
+    const originalUpdateOne = Book.updateOne.bind(Book);
+    let stockUpdateAttempts = 0;
+    const updateSpy = jest.spyOn(Book, 'updateOne').mockImplementation(
+      ((...args: Parameters<typeof Book.updateOne>) => {
+        const filter = args[0];
+        if (filter && 'stock' in filter && ++stockUpdateAttempts === 2) {
+          // Force a conditional stock update conflict on the second line item.
+          return originalUpdateOne({ ...filter, stock: { $gte: 999_999 } }, args[1], args[2]);
+        }
+        return originalUpdateOne(...args);
+      }) as typeof Book.updateOne
+    );
+    try {
+      const failed = await request(app).post('/api/v1/orders').set(auth)
+        .send({ shippingAddress: '123 Test Street, Istanbul', paymentMethod: 'manual' });
+      expect(failed.statusCode).toBe(409);
+      expect(failed.body.error.code).toBe('STOCK_CHANGED');
+      expect(stockUpdateAttempts).toBe(2);
+    } finally {
+      updateSpy.mockRestore();
+    }
+
+    expect((await Book.findById(first._id).lean())?.stock).toBe(4);
+    expect((await Book.findById(second._id).lean())?.stock).toBe(4);
+    expect(await Order.countDocuments()).toBe(0);
+    const cart = await Cart.findOne({ user: user.id }).lean();
+    expect(cart?.checkoutLockedAt).toBeNull();
+    expect(cart?.items).toHaveLength(2);
+  });
+
 });

@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import * as os from 'node:os';
 import { join } from 'node:path';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
@@ -10,12 +10,16 @@ import { Book } from '../src/modules/books/book.model';
 import { Review } from '../src/modules/reviews/review.model';
 
 let mongo: MongoMemoryServer | undefined;
-const mongoDownloadDir = join(tmpdir(), 'bookhaven-mongodb-binaries');
+const mongoDownloadDir = join(os.tmpdir(), 'bookhaven-mongodb-binaries');
 
 beforeAll(async () => {
   await mkdir(mongoDownloadDir, { recursive: true });
-  mongo = await MongoMemoryServer.create({ binary: { downloadDir: mongoDownloadDir } });
-  await mongoose.connect(mongo.getUri());
+  if (process.env.BOOKHAVEN_TEST_MONGO_URI) {
+    await mongoose.connect(process.env.BOOKHAVEN_TEST_MONGO_URI, { serverSelectionTimeoutMS: 10_000, runtimeAdapters: { os } });
+  } else {
+    mongo = await MongoMemoryServer.create({ binary: { downloadDir: mongoDownloadDir } });
+    await mongoose.connect(mongo.getUri(), { runtimeAdapters: { os } });
+  }
   await Promise.all([User.syncIndexes(), Book.syncIndexes(), Review.syncIndexes()]);
 });
 

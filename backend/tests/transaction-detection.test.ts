@@ -13,6 +13,7 @@ describe('MongoDB transaction discovery', () => {
   const originalDescriptor = Object.getOwnPropertyDescriptor(mongoose.connection, 'db');
 
   afterEach(() => {
+    jest.restoreAllMocks();
     if (originalDescriptor) {
       Object.defineProperty(mongoose.connection, 'db', originalDescriptor);
     } else {
@@ -58,6 +59,17 @@ describe('MongoDB transaction discovery', () => {
     expect(await mongoTransactionsAvailable()).toBe(true);
     useDb(standalone);
     expect(await mongoTransactionsAvailable()).toBe(false);
+  });
+
+  it('blocks checkout before cart mutation when topology cannot be checked', async () => {
+    const { Cart } = await import('../src/modules/cart/cart.model');
+    const { create } = await import('../src/modules/orders/order.service');
+    const blocked = jest.spyOn(Cart, 'findOneAndUpdate');
+    useDb(fakeDatabase(async () => { throw new Error('temporary topology outage'); }));
+
+    await expect(create(new mongoose.Types.ObjectId().toString(), '123 Test Street, Istanbul', 'manual'))
+      .rejects.toThrow('MongoDB transaction capability could not be verified');
+    expect(blocked).not.toHaveBeenCalled();
   });
 
   it('retries a transient discovery failure instead of caching false', async () => {

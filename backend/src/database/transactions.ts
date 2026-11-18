@@ -17,7 +17,8 @@ export async function mongoTransactionsAvailable() {
     transactionSupportByDb.set(db, available);
     return available;
   } catch {
-    // A transient discovery error should be retried on the next request.
-    return false;
+    // Do not silently downgrade a replica-set checkout to non-transactional
+    // compensation when topology discovery fails. Retrying is safer.
+    throw new Error('MongoDB transaction capability could not be verified');
   }
 }

@@ -21,7 +21,7 @@ describe('untrusted request ID validation', () => {
     expect(invoke('a'.repeat(128))).toBe('a'.repeat(128));
   });
 
-  it.each(['', 'x'.repeat(129), 'x\\r\\nunsafe', 'unsafe space', 'unsafe\\tvalue', '⚠️'])(
+  it.each(['', 'x'.repeat(129), 'x\r\nunsafe', 'unsafe space', 'unsafe\tvalue', '⚠️'])(
     'generates a safe ID instead of reflecting an unsafe header',
     (incoming) => {
       const id = invoke(incoming);

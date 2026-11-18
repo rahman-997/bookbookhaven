@@ -68,7 +68,8 @@ describe('MongoDB transaction discovery', () => {
       return { setName: 'rs0' };
     });
     useDb(db);
-    expect(await mongoTransactionsAvailable()).toBe(false);
+    await expect(mongoTransactionsAvailable())
+      .rejects.toThrow('MongoDB transaction capability could not be verified');
     expect(await mongoTransactionsAvailable()).toBe(true);
     expect(attempts).toBe(2);
   });

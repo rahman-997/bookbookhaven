@@ -174,9 +174,16 @@ async function createWithCompensation(userId: string, shippingAddress: string, p
     if (orderId) await Order.deleteOne({ _id: orderId }).catch(() => undefined);
     await Promise.allSettled(decremented.map((item) => Book.updateOne({ _id: item.id }, { $inc: { stock: item.quantity } })));
 
-    const survivingBooks = await Book.find({ _id: { $in: bookIds } }).select('_id').lean().catch(() => []);
-    const survivingIds = new Set(survivingBooks.map((book) => String(book._id)));
-    cart.items = originalCartItems.filter((item) => survivingIds.has(String(item.book)));
+    // Preserve the customer's original cart if this recovery lookup fails.
+    // A successful lookup still removes products that no longer exist.
+    cart.items = originalCartItems;
+    try {
+      const survivingBooks = await Book.find({ _id: { $in: bookIds } }).select('_id').lean();
+      const survivingIds = new Set(survivingBooks.map((book) => String(book._id)));
+      cart.items = originalCartItems.filter((item) => survivingIds.has(String(item.book)));
+    } catch {
+      // Unknown availability is not proof that the cart should be emptied.
+    }
     cart.checkoutLockedAt = null;
     await cart.save().catch(() => undefined);
     throw error;

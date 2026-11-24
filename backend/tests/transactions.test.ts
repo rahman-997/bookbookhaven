@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import * as os from 'node:os';
 import { join } from 'node:path';
 import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
@@ -11,15 +11,19 @@ import { Cart } from '../src/modules/cart/cart.model';
 import { Order } from '../src/modules/orders/order.model';
 
 let replicaSet: MongoMemoryReplSet | undefined;
-const mongoDownloadDir = join(tmpdir(), 'bookhaven-mongodb-binaries');
+const mongoDownloadDir = join(os.tmpdir(), 'bookhaven-mongodb-binaries');
 
 beforeAll(async () => {
   await mkdir(mongoDownloadDir, { recursive: true });
-  replicaSet = await MongoMemoryReplSet.create({
-    binary: { downloadDir: mongoDownloadDir },
-    replSet: { count: 1 }
-  });
-  await mongoose.connect(replicaSet.getUri());
+  if (process.env.BOOKHAVEN_TEST_REPLICA_URI) {
+    await mongoose.connect(process.env.BOOKHAVEN_TEST_REPLICA_URI, { serverSelectionTimeoutMS: 10_000, runtimeAdapters: { os } });
+  } else {
+    replicaSet = await MongoMemoryReplSet.create({
+      binary: { downloadDir: mongoDownloadDir },
+      replSet: { count: 1 }
+    });
+    await mongoose.connect(replicaSet.getUri(), { runtimeAdapters: { os } });
+  }
   await Promise.all([User.syncIndexes(), Book.syncIndexes(), Cart.syncIndexes(), Order.syncIndexes()]);
 });
 

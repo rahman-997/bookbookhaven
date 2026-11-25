@@ -1,6 +1,7 @@
 // Start disposable standalone and replica-set MongoDB fixtures OUTSIDE Jest hook limits.
 // Each Jest suite uses a shared URI; no production services, secrets, or remote databases.
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -23,8 +24,8 @@ try {
   console.log('Disposable standalone and replica-set MongoDB fixtures started outside Jest.');
   const env = {
     ...process.env,
-    BOOKHAVEN_TEST_MONGO_URI: standalone.getUri(),
-    BOOKHAVEN_TEST_REPLICA_URI: replica.getUri()
+    BOOKHAVEN_TEST_MONGO_URI: standalone.getUri(`bookhaven_test_${randomUUID().replaceAll('-', '')}`),
+    BOOKHAVEN_TEST_REPLICA_URI: replica.getUri(`bookhaven_test_${randomUUID().replaceAll('-', '')}`)
   };
   const exitCode = await new Promise((done, reject) => {
     const child = spawn(process.execPath, [jestBinary, '--runInBand', ...process.argv.slice(2)], {

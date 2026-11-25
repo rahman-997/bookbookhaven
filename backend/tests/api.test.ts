@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import request from 'supertest';
+import { isolatedFixtureUri, mongoTestOptions } from './mongo-options';
 import { app } from '../src/app';
 import { User } from '../src/modules/auth/user.model';
 import { Book } from '../src/modules/books/book.model';
@@ -17,11 +18,17 @@ const mongoDownloadDir = join(tmpdir(), 'bookhaven-mongodb-binaries');
 
 beforeAll(async () => {
   await mkdir(mongoDownloadDir, { recursive: true });
-  mongo = await MongoMemoryServer.create({ binary: { downloadDir: mongoDownloadDir } });
-  await mongoose.connect(mongo.getUri());
+  const fixtureUri = process.env.BOOKHAVEN_TEST_MONGO_URI;
+  if (fixtureUri) {
+    await mongoose.connect(isolatedFixtureUri(fixtureUri), mongoTestOptions);
+  } else {
+    mongo = await MongoMemoryServer.create({ binary: { downloadDir: mongoDownloadDir } });
+    await mongoose.connect(mongo.getUri(), mongoTestOptions);
+  }
   await Promise.all([User.syncIndexes(), Book.syncIndexes(), Cart.syncIndexes(), Order.syncIndexes(), Review.syncIndexes(), Wishlist.syncIndexes()]);
 });
 afterEach(async () => {
+  if (mongoose.connection.readyState !== 1) return;
   await Promise.all([
     User.deleteMany({}),
     Book.deleteMany({}),

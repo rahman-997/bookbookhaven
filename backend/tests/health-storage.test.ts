@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import request from 'supertest';
+import { isolatedFixtureUri, mongoTestOptions } from './mongo-options';
 import { app } from '../src/app';
 import { setShuttingDown } from '../src/modules/health/runtime-health';
 
@@ -13,8 +14,13 @@ const originalStorageMode = process.env.BOOKHAVEN_STORAGE_MODE;
 
 beforeAll(async () => {
   await mkdir(mongoDownloadDir, { recursive: true });
-  mongo = await MongoMemoryServer.create({ binary: { downloadDir: mongoDownloadDir } });
-  await mongoose.connect(mongo.getUri());
+  const fixtureUri = process.env.BOOKHAVEN_TEST_MONGO_URI;
+  if (fixtureUri) {
+    await mongoose.connect(isolatedFixtureUri(fixtureUri), mongoTestOptions);
+  } else {
+    mongo = await MongoMemoryServer.create({ binary: { downloadDir: mongoDownloadDir } });
+    await mongoose.connect(mongo.getUri(), mongoTestOptions);
+  }
 });
 
 afterEach(() => {

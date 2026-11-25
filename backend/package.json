@@ -7,7 +7,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "test": "jest --runInBand",
+    "test": "node scripts/run-integration-tests.mjs",
     "test:watch": "jest --watch",
     "seed": "node dist/seed.js",
     "seed:dev": "tsx src/seed.ts"

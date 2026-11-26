@@ -31,7 +31,7 @@ export async function listForUser(userId: string, input: ListInput) {
   if (input.status) filter.status = input.status;
 
   const [items, total] = await Promise.all([
-    Order.find(filter).sort({ createdAt: -1 }).skip((input.page - 1) * input.limit).limit(input.limit).lean(),
+    Order.find(filter).sort({ createdAt: -1, _id: -1 }).skip((input.page - 1) * input.limit).limit(input.limit).lean(),
     Order.countDocuments(filter)
   ]);
 
@@ -63,7 +63,7 @@ export async function listAll(input: AdminListInput) {
   const [items, total] = await Promise.all([
     Order.find(filter)
       .populate('user', 'name email')
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: -1, _id: -1 })
       .skip((input.page - 1) * input.limit)
       .limit(input.limit)
       .lean(),

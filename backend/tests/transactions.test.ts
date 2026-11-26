@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import request from 'supertest';
+import { isolatedFixtureUri, mongoTestOptions } from './mongo-options';
 import { app } from '../src/app';
 import { User } from '../src/modules/auth/user.model';
 import { Book } from '../src/modules/books/book.model';
@@ -15,19 +16,21 @@ const mongoDownloadDir = join(os.tmpdir(), 'bookhaven-mongodb-binaries');
 
 beforeAll(async () => {
   await mkdir(mongoDownloadDir, { recursive: true });
-  if (process.env.BOOKHAVEN_TEST_REPLICA_URI) {
-    await mongoose.connect(process.env.BOOKHAVEN_TEST_REPLICA_URI, { serverSelectionTimeoutMS: 10_000, runtimeAdapters: { os } });
+  const fixtureUri = process.env.BOOKHAVEN_TEST_REPLICA_URI;
+  if (fixtureUri) {
+    await mongoose.connect(isolatedFixtureUri(fixtureUri), mongoTestOptions);
   } else {
     replicaSet = await MongoMemoryReplSet.create({
       binary: { downloadDir: mongoDownloadDir },
       replSet: { count: 1 }
     });
-    await mongoose.connect(replicaSet.getUri(), { runtimeAdapters: { os } });
+    await mongoose.connect(replicaSet.getUri(), mongoTestOptions);
   }
   await Promise.all([User.syncIndexes(), Book.syncIndexes(), Cart.syncIndexes(), Order.syncIndexes()]);
 });
 
 afterEach(async () => {
+  if (mongoose.connection.readyState !== 1) return;
   await Promise.all([User.deleteMany({}), Book.deleteMany({}), Cart.deleteMany({}), Order.deleteMany({})]);
 });
 
